@@ -1,0 +1,7 @@
+Package: CHEMPASS
+Title: CHEMPASS
+Version: 0.0.1
+# URL: https://github.com/eitm-org/chip_invasion
+Imports:
+    shiny,
+    shinytest2 # Add imports here
