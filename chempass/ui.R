@@ -16,12 +16,12 @@ fluidPage( # fluidpage helps rescale the app display depending on the window its
         position: absolute;
         top: 10px;
         right: 20px;
-        height: 200px;
+        height: 150px;
       }
       .title-container {
         position: relative;
-        padding-top: 10px;
-        padding-bottom: 10px;
+        padding-top: 5px;
+        padding-bottom: 5px;
       }
     "))
   ),
@@ -41,7 +41,7 @@ fluidPage( # fluidpage helps rescale the app display depending on the window its
   sidebarLayout(
     sidebarPanel(
       helpText("Use example data to test the app without uploading a file."),
-      materialSwitch(inputId = "use_example", label = "Use Example Data", value = FALSE, status = "success"),
+      materialSwitch(inputId = "use_example", label = "Use Example Data", value = FALSE, status = "danger"),
       
       conditionalPanel(
         condition = "input.use_example == true",
@@ -84,7 +84,7 @@ fluidPage( # fluidpage helps rescale the app display depending on the window its
      
       
       
-      
+      p("          "),
       tags$details(
         tags$summary(HTML('<b>Select fingerprint type:</b> <span style="color:blue; cursor:pointer;">[?]</span>')),  
         p(strong("What are Morgan fingerprints?")),
@@ -96,9 +96,9 @@ fluidPage( # fluidpage helps rescale the app display depending on the window its
         p("Please use the refresh button to change fingerprint type selection and observe the heatmap change accordingly.")
       ),
       selectInput("fingerprint_type", "", choices = c("ECFP4", "FCFP4")),
-      actionButton("fingerprint_button", "2 - Generate Fingerprints", style = "color: white; background-color: #ae017e; border-color: black;"),
+      actionButton("fingerprint_button", "2 - Generate Fingerprints", style = "color: white; background-color: #54278f; border-color: black;"),
       
-      
+      p("          "),
       tags$details(
         tags$summary(HTML('<b>Clustering Cutoff:</b> <span style="color:blue; cursor:pointer;">[?]</span>')),  
         p(strong("What does Clustering Cutoff mean?")),
