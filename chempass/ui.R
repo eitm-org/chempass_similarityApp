@@ -34,7 +34,6 @@ fluidPage( # fluidpage helps rescale the app display depending on the window its
   titlePanel("CHEMPASS; A Tool for Rapid Chemical Structure Similarity Scoring and Clustering from Common Identifiers."),
   p("Upload your list of compounds in .csv/.txt format either as CID/DTXSIDs/SMILES, select your choice of fingerprint generation, set the clustering threshold, and explore cluster-level statistics and heatmaps."),
   p("Outputs include a .pdf of clusters with similarity scores, molecular properties of compounds, png of heatmap and NMDS plots."),
-  helpText("Please refresh app to upload a new file or try another example data"),
   shinyjs::useShinyjs(),
   tags$script(HTML("Shiny.setInputValue('disable_ready', true);")),
   uiOutput("download_ui"),
@@ -51,11 +50,13 @@ fluidPage( # fluidpage helps rescale the app display depending on the window its
       
       conditionalPanel(
         condition = "input.use_example == false",
-        fileInput("file_upload", "Upload File", accept = c(".csv", ".txt")),
-        actionButton("process_file", "1 - Process This File"),
         
+        # File input label
+        #tags$label("Upload File"),
+        
+        # Instructions placed directly above the browse button
         tags$details(
-          tags$summary(HTML('File Upload Instructions: <span style="color:blue; cursor:pointer;">[?]</span>')),  
+          tags$summary(HTML('<b>Upload File:</b> <span style="color:blue; cursor:pointer;">[?]</span>')),  
           p("Please upload a list of compounds in text (.txt) or CSV (.csv) format containing one or more of these identifiers."),
           tags$ul(
             tags$li(
@@ -75,16 +76,17 @@ fluidPage( # fluidpage helps rescale the app display depending on the window its
           tags$img(src = "example_table_image.png", width = "70%", height = "auto"), 
         ),
         
-        
+        # File input itself
+        fileInput("file_upload", label = NULL),
+        actionButton("process_file", "1 - Process This File", style = "color: white; background-color: #993404; border-color: black;")
       ),
       
+     
       
       
       
-      actionButton("fingerprint_button", "2 - Generate Fingerprints"),
-      selectInput("fingerprint_type", "Select fingerprint type:", choices = c("ECFP4", "FCFP4")),
       tags$details(
-        tags$summary(HTML('Fingerprint: <span style="color:blue; cursor:pointer;">[?]</span>')),  
+        tags$summary(HTML('<b>Select fingerprint type:</b> <span style="color:blue; cursor:pointer;">[?]</span>')),  
         p(strong("What are Morgan fingerprints?")),
         p("Morgan fingerprints encode molecular structures by considering circular atom neighborhoods."),
         tags$ul(
@@ -93,10 +95,12 @@ fluidPage( # fluidpage helps rescale the app display depending on the window its
         ),
         p("Please use the refresh button to change fingerprint type selection and observe the heatmap change accordingly.")
       ),
+      selectInput("fingerprint_type", "", choices = c("ECFP4", "FCFP4")),
+      actionButton("fingerprint_button", "2 - Generate Fingerprints", style = "color: white; background-color: #ae017e; border-color: black;"),
       
-      numericInput("cutoff", "Clustering Cutoff", value = 0.2, step = 0.01),
+      
       tags$details(
-        tags$summary(HTML('Clustering Cutoff: <span style="color:blue; cursor:pointer;">[?]</span>')),  
+        tags$summary(HTML('<b>Clustering Cutoff:</b> <span style="color:blue; cursor:pointer;">[?]</span>')),  
         p(strong("What does Clustering Cutoff mean?")),
         p("This value sets the distance threshold."),
         p("• A ", strong("lower cutoff"), " (e.g., 0.2) forms tighter, smaller clusters."),
@@ -105,7 +109,8 @@ fluidPage( # fluidpage helps rescale the app display depending on the window its
         p("For chemical structure clustering, a cutoff of 0.2–0.4 is often a good starting point."),
         p("Please use the refresh button to change clustering cutoff and observe the Butina clusters and NMDS plots change accordingly.")
       ),
-      actionButton("cluster", "3 - Generate Butina Compound Clusters"),
+      numericInput("cutoff", "", value = 0.2, step = 0.01),
+      actionButton("cluster", "3 - Generate Butina Compound Clusters", style = "color: white; background-color: #08519c; border-color: black;"),
       
       tags$head(
         tags$style(HTML("a.action-button[disabled] {
@@ -116,8 +121,9 @@ fluidPage( # fluidpage helps rescale the app display depending on the window its
     mainPanel(
       tabsetPanel(
         tabPanel("Heatmap", plotOutput("imageOutput1", width = 1500, height = 1500)),
-        tabPanel("Butina clusters", plotOutput("imageOutput2", width = 1000, height = 1000)),
-        tabPanel("NMDS Plot", plotOutput("imageOutput3", width = 800, height = 800))
+        tabPanel("Butina Clusters", uiOutput("cluster_pdf")),
+        tabPanel("NMDS Plot", plotOutput("imageOutput3", width = 800, height = 800)),
+        
       )
     )
   )
