@@ -65,4 +65,61 @@ conditionalPanel(
   ),
   
   
-),
+)
+
+##############################################################
+## interactive plots
+##############################################################
+
+output$imageOutput4 <- renderPlot({
+  req(event3_trigger())
+  req(tanimoto_matrix())
+  req(clustering_done())
+  
+  metaMDS_results.points <- metaMDS_results.points_slot()
+  
+  g <- metaMDS_results.points %>% 
+    ggplot(., aes(x = MDS1, y = MDS3)) +
+    geom_point(size = 2, col = "grey") +
+    geom_point(data = filter(metaMDS_results.points, cluster_ID_toPlot == "plot"), aes(x = MDS1, y = MDS3, col = cluster_ID), size = 4) +
+    #scale_color_manual(values = c('#7fc97f','#beaed4','#fdc086','#ffff99','#386cb0','#f0027f','#bf5b17','#666666')) +
+    theme_classic() +
+    theme(text = element_text(size = 15)) +
+    labs(title = "NMDS Plot from Distance Matrix",
+         x = "MDS1",
+         y = "MDS2")
+  
+  #plot(g)
+  
+  NMDS_slot(g)
+  
+})
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

@@ -16,6 +16,7 @@ library(Matrix)
 library(scales)
 library(stringr)
 library(ggplot2)
+library(plotly)
 
 
 use_miniconda("my-rdkit-env2")
@@ -57,6 +58,7 @@ function(input, output, session) {
   indices_greater_than1_slot <- reactiveVal(NULL)
   duplicate_rows_slot <- reactiveVal(NULL)
   toggle <- reactiveVal(NULL)
+  metaMDS_results.points_slot <- reactiveVal(NULL)
   
   observe({
     shinyjs::disable("process_file")
@@ -108,11 +110,6 @@ function(input, output, session) {
   
   })
   
-  # Render fileInput, refresh it when reset_counter changes
-  output$file_input_ui <- renderUI({
-    reset_counter()  # dependency here
-    fileInput("file_upload", "Upload your file")
-  })
   
   
   
@@ -548,7 +545,59 @@ function(input, output, session) {
     
     clustering_done(TRUE)
     shinyjs::enable("cluster")
-    #reset('file_upload')
+    
+    distance_matrix <- tanimoto_matrix()
+    
+    set.seed(4242)
+    metaMDS_results <- metaMDS(comm = distance_matrix,
+                               autotransform = FALSE,
+                               engine = "monoMDS",
+                               k = 3,
+                               weakties = FALSE,
+                               model = "global",
+                               maxit = 400,
+                               try = 40,
+                               trymax = 100)
+    
+    metaMDS_results.points <- data.frame(metaMDS_results$points)
+    
+    
+    metaMDS_results.points$cluster_ID <- merged_df$cluster_membership
+    
+    metaMDS_results.points$Name <- merged_df$Name
+    #print(head(metaMDS_results.points))
+    metaMDS_results.points <- metaMDS_results.points %>% mutate(cluster_ID = as.character(cluster_ID))
+    
+    metaMDS_results.points <- metaMDS_results.points[order(metaMDS_results.points$cluster_ID, method = "shell"),]
+    
+    metaMDS_results.points$cluster_ID <- factor(metaMDS_results.points$cluster_ID,
+                                                levels = as.character(1:length(clusters)), ordered = TRUE)
+    
+    clustered_mol <- metaMDS_results.points %>% group_by(cluster_ID) %>% 
+      summarize(cluster_count = sum(cluster_ID >= 1, na.rm = TRUE)) %>% 
+      filter(cluster_count > 1)
+    
+    
+    metaMDS_results.points$cluster_ID_toPlot <- ifelse(metaMDS_results.points$cluster_ID %in% clustered_mol$cluster_ID, 
+                                                       "plot", "do not plot")
+    
+    
+    plot <- metaMDS_results.points %>% 
+      ggplot(., aes(x = MDS1, y = MDS3)) +
+      geom_point(size = 2, col = "grey") +
+      geom_point(data = filter(metaMDS_results.points, cluster_ID_toPlot == "plot"), aes(x = MDS1, y = MDS3, col = cluster_ID), size = 4) +
+      #scale_color_manual(values = c('#7fc97f','#beaed4','#fdc086','#ffff99','#386cb0','#f0027f','#bf5b17','#666666')) +
+      theme_classic() +
+      theme(text = element_text(size = 15)) +
+      labs(title = "NMDS Plot from Distance Matrix",
+           x = "MDS1",
+           y = "MDS2")
+    
+    NMDS_slot(plot)
+    
+    NMD_plotting_done(TRUE)
+    metaMDS_results.points_slot(metaMDS_results.points)
+    
   }) # ending the fourth observation of cluster cutoff
   
   
@@ -688,48 +737,17 @@ function(input, output, session) {
   })
   
   
-  output$imageOutput3 <- renderPlot({
-    req(event2_trigger())
+  output$imageOutput3 <- renderPlotly({
+    req(event3_trigger())
     req(tanimoto_matrix())
     req(clustering_done())
-    distance_matrix <- tanimoto_matrix()
-    merged_data <- merged_matrix()
-    clusters <- clusters_slot()
-    
-    set.seed(4242)
-    metaMDS_results <- metaMDS(comm = distance_matrix,
-                               autotransform = FALSE,
-                               engine = "monoMDS",
-                               k = 3,
-                               weakties = FALSE,
-                               model = "global",
-                               maxit = 400,
-                               try = 40,
-                               trymax = 100)
-    
-    metaMDS_results.points <- data.frame(metaMDS_results$points)
     
     
-    metaMDS_results.points$cluster_ID <- merged_data$cluster_membership
-    
-    #print(head(metaMDS_results.points))
-    metaMDS_results.points <- metaMDS_results.points %>% mutate(cluster_ID = as.character(cluster_ID))
-    
-    metaMDS_results.points <- metaMDS_results.points[order(metaMDS_results.points$cluster_ID, method = "shell"),]
-    
-    metaMDS_results.points$cluster_ID <- factor(metaMDS_results.points$cluster_ID,
-                                                levels = as.character(1:length(clusters)), ordered = TRUE)
-    
-    clustered_mol <- metaMDS_results.points %>% group_by(cluster_ID) %>% 
-      summarize(cluster_count = sum(cluster_ID >= 1, na.rm = TRUE)) %>% 
-      filter(cluster_count > 1)
+    metaMDS_results.points <- metaMDS_results.points_slot()
     
     
-    metaMDS_results.points$cluster_ID_toPlot <- ifelse(metaMDS_results.points$cluster_ID %in% clustered_mol$cluster_ID, 
-                                                       "plot", "do not plot")
-    
-    NMDS_plot <- metaMDS_results.points %>% 
-      ggplot(., aes(x = MDS1, y = MDS3)) +
+    g <- metaMDS_results.points %>% 
+      ggplot(., aes(x = MDS1, y = MDS3, text = Name)) +
       geom_point(size = 2, col = "grey") +
       geom_point(data = filter(metaMDS_results.points, cluster_ID_toPlot == "plot"), aes(x = MDS1, y = MDS3, col = cluster_ID), size = 4) +
       #scale_color_manual(values = c('#7fc97f','#beaed4','#fdc086','#ffff99','#386cb0','#f0027f','#bf5b17','#666666')) +
@@ -739,16 +757,12 @@ function(input, output, session) {
            x = "MDS1",
            y = "MDS2")
     
-    plot(NMDS_plot)
-    
-    NMDS_slot(NMDS_plot)
-    
-    NMD_plotting_done(TRUE)
-    
-  }, res = 100)
+    ggplotly(g, tooltip = "text")
+
+  })
   
   
-  #outputOptions(output, "imageOutput3", suspendWhenHidden = FALSE)
+  
   
   
   

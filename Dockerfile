@@ -45,6 +45,7 @@ RUN R -e "install.packages(c(\
   'stringr', \
   'ggplot2', \ 
   'vegan', \
+  'plotly', \
   'base64enc', \
   'shinyjs', \
   'shinyWidgets'\

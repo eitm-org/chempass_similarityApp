@@ -3,7 +3,7 @@
 library(shiny)
 library(shinyjs)
 library(shinyWidgets)
-
+library(plotly)
 
 
 
@@ -122,7 +122,7 @@ fluidPage( # fluidpage helps rescale the app display depending on the window its
       tabsetPanel(
         tabPanel("Heatmap", plotOutput("imageOutput1", width = 1500, height = 1500)),
         tabPanel("Butina Clusters", uiOutput("cluster_pdf")),
-        tabPanel("NMDS Plot", plotOutput("imageOutput3", width = 800, height = 800)),
+        tabPanel("NMDS Plot", plotlyOutput("imageOutput3", width = 800, height = 800)),
         
       )
     )
