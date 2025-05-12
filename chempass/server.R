@@ -76,7 +76,8 @@ function(input, output, session) {
     if(input$use_example == TRUE){
       print("user set toggle to on")
       toggle <- "on"
-      mixed_input <- read.csv("CID_example_data.csv", header = FALSE)
+      mixed_input <- read.csv("CID_example_data.csv", header = FALSE, stringsAsFactors = FALSE)
+      colnames(mixed_input) <- "V1"
       reactive_df(mixed_input)
       shinyjs::disable("process_file")
       shinyjs::disable("fingerprint_type")
@@ -88,6 +89,9 @@ function(input, output, session) {
       event3_trigger(FALSE)
       clustering_done(FALSE)
       NMD_plotting_done(FALSE)
+      heatmap_slot(NULL)
+      clusters_slot(NULL)
+      NMDS_slot(NULL)
       
     }else{
       print("user set toggle to off")
@@ -102,6 +106,9 @@ function(input, output, session) {
       event3_trigger(FALSE)
       clustering_done(FALSE)
       NMD_plotting_done(FALSE)
+      heatmap_slot(NULL)
+      clusters_slot(NULL)
+      NMDS_slot(NULL)
       reset('file_upload')
     }
     
@@ -112,21 +119,50 @@ function(input, output, session) {
   
   
   
-  
+  ## code to check file input from user
   observeEvent(input$file_upload, {
     req(input$file_upload)
-    mixed_input <- read.csv(input$file_upload$datapath, header = FALSE) 
-    reactive_df(mixed_input)
-    shinyjs::enable("process_file")
-    shinyjs::disable("fingerprint_type")
-    shinyjs::disable("fingerprint_button")
-    shinyjs::disable("cluster")
-    shinyjs::disable("cutoff")
     
-    event2_trigger(FALSE)
-    event3_trigger(FALSE)
-    clustering_done(FALSE)
-    NMD_plotting_done(FALSE)
+    file_ext <- tools::file_ext(input$file_upload$name)
+    if (!(file_ext %in% c("csv", "txt"))) {
+      sendSweetAlert(
+        session,
+        title = "❌ Unsupported file type",
+        text = "Please upload a .csv or .txt file only.",
+        type = "error",
+        #timer = 4000,
+        #showConfirmButton = FALSE
+      )
+      shinyjs::reset("form_upload")
+      return(NULL)
+    }else{
+      
+      sendSweetAlert(
+        session,
+        title = "✅ Correct file type, thank you!",
+        #text = "Please upload a .csv or .txt file only.",
+        type = "success",
+        #timer = 4000,
+        #showConfirmButton = FALSE
+      )
+      
+      mixed_input <- read.csv(input$file_upload$datapath, header = FALSE, stringsAsFactors = FALSE) 
+      colnames(mixed_input) <- "V1"
+      reactive_df(mixed_input)
+      shinyjs::enable("process_file")
+      shinyjs::disable("fingerprint_type")
+      shinyjs::disable("fingerprint_button")
+      shinyjs::disable("cluster")
+      shinyjs::disable("cutoff")
+      
+      event2_trigger(FALSE)
+      event3_trigger(FALSE)
+      clustering_done(FALSE)
+      NMD_plotting_done(FALSE)
+    }
+    
+    
+    
     
   })
   
@@ -134,150 +170,209 @@ function(input, output, session) {
     req(reactive_df())
     mixed_input <- reactive_df()
     
+    tryCatch({
+      
+      # Check number of columns
+      if (ncol(mixed_input) != 1) {
+        sendSweetAlert(
+          session,
+          title = "⚠️ Incorrect format",
+          text = paste("Expected 1 column, but found ", ncol(mixed_input)),
+          type = "warning",
+          #timer = 4000,
+          #showConfirmButton = FALSE
+        )
+        shinyjs::reset("form_upload")
+        return(NULL)
+      }
+      
+      # Clean and name the column
+      mixed_input$V1 <- trimws(mixed_input$V1)
+      duplicate_rows <- mixed_input[duplicated(mixed_input), , drop = FALSE]
+      
+      if (nrow(duplicate_rows) > 0) {
+        duplicate_rows_slot(duplicate_rows)
+        sendSweetAlert(
+          session,
+          title = "⚠️ Duplicates Detected",
+          text = paste("Found ", nrow(duplicate_rows), " duplicate entries in your data."),
+          type = "warning",
+          position = "center"  
+        )
+      } else {
+        sendSweetAlert(
+          session,
+          title = "No duplicates found",
+          text = "✅ Your data looks clean!",
+          type = "success",
+          position = "center"  
+        )
+        shinyjs::reset("form_upload")
+      }
+      
+      
+      mixed_input <- mixed_input %>% count(V1) %>% filter(n == 1) %>% subset(select = V1)
+      
+      
+    }, error = function(e) {
+      sendSweetAlert(
+        session,
+        title = "❌ Error reading file",
+        text = paste("Please ensure the file is a valid plain-text CSV or TXT.\n\n", e$message),
+        type = "error",
+        #timer = 6000,
+        #showConfirmButton = FALSE
+      )
+    })
     
     shinyjs::disable("process_file")
     
     
+    show_modal_spinner(text = "Processing input: Pulling data from PubChem...")
     
-    mixed_input <- as.data.frame(trimws(mixed_input$V1))
-    colnames(mixed_input) <- "V1"
+    numbers_only <- function(x) !grepl("\\D", x)
     
-    duplicate_rows <- mixed_input[duplicated(mixed_input),]
-    duplicate_rows_slot(duplicate_rows)
-    mixed_input <- mixed_input %>% count(V1) %>% filter(n == 1) %>% subset(select = V1)
+    mixed_input$DTXSID <- grepl("DTXSID", mixed_input$V1)
+    
+    mixed_input$CID <- numbers_only(mixed_input$V1)
+    
+    dtxsid_df <- filter(mixed_input, DTXSID == TRUE)
+    dtxsid_df <- subset(dtxsid_df, select = V1)
     
     
+    cid_df <- filter(mixed_input, CID == TRUE)
+    cid_df <- subset(cid_df, select = V1)
     
     
-    withProgress(message = "Processing:", value = 0, {
+    smiles_df <- filter(mixed_input, DTXSID == FALSE & CID == FALSE)
+    smiles_df <- subset(smiles_df, select = V1)
+  
+    if (dim(dtxsid_df)[1] > 0) {
+      pubchem_dtx <- list()
+      dtxsids <- dtxsid_df$V1
       
-      
-      
-      
-      numbers_only <- function(x) !grepl("\\D", x)
-      
-      mixed_input$DTXSID <- grepl("DTXSID", mixed_input$V1)
-      
-      mixed_input$CID <- numbers_only(mixed_input$V1)
-      
-      dtxsid_df <- filter(mixed_input, DTXSID == TRUE)
-      dtxsid_df <- subset(dtxsid_df, select = V1)
-      
-      
-      cid_df <- filter(mixed_input, CID == TRUE)
-      cid_df <- subset(cid_df, select = V1)
-      
-      
-      smiles_df <- filter(mixed_input, DTXSID == FALSE & CID == FALSE)
-      smiles_df <- subset(smiles_df, select = V1)
-      
-      incProgress(0.5, detail = "Pulling data from PubChem...")
-      
-      if (dim(dtxsid_df)[1] > 0) {
-        pubchem_dtx <- list()
-        dtxsids <- dtxsid_df$V1
+      for (dtxsid in dtxsids) {
+        cid <- tryCatch({
+          get_cid_from_dtxsid(dtxsid)
+        }, error = function(e) {
+          #message("Retrying once after error...")
+          Sys.sleep(1)
+          tryCatch(get_cid_from_dtxsid(dtxsid), error = function(e2) {
+            #message("Second attempt failed.")
+            "error"
+          })
+        })
         
-        for (dtxsid in dtxsids) {
-          cid <- get_cid_from_dtxsid(dtxsid)
-          
-          pubchem_dtx <- append(pubchem_dtx, list(list(input = dtxsid,'DTXSID' = dtxsid, 'CID' = cid)))
-          
-        }
+        pubchem_dtx <- append(pubchem_dtx, list(list(input = dtxsid,'DTXSID' = dtxsid, 'CID' = cid)))
         
-        df1 <- pd$DataFrame(pubchem_dtx)
       }
       
+      df1 <- pd$DataFrame(pubchem_dtx)
+    }
+    
+    
+    
+    if (dim(smiles_df)[1] > 0) {
+      pubchem_smiles <- list()
+      smiles <- smiles_df$V1
       
-      
-      if (dim(smiles_df)[1] > 0) {
-        pubchem_smiles <- list()
-        smiles <- smiles_df$V1
+      for (smile in smiles) {
+        encoded <- base64encode(charToRaw(smile))
+        #cid <- get_CID_from_SMILES(encoded)
         
-        for (smile in smiles) {
-          encoded <- base64encode(charToRaw(smile))
-          cid <- get_CID_from_SMILES(encoded)
-          
-          pubchem_smiles <- append(pubchem_smiles, list(list(input = smile,'DTXSID' = NULL, 'CID' = cid)))
-          
-        }
+        cid <- tryCatch({
+          get_CID_from_SMILES(encoded)
+        }, error = function(e) {
+          #message("Retrying once after error...")
+          Sys.sleep(1)
+          tryCatch(get_CID_from_SMILES(encoded), error = function(e2) {
+            #message("Second attempt failed.")
+            "error"
+          })
+        })
         
-        df2 <- pd$DataFrame(pubchem_smiles)
-      }
-      
-      if (dim(cid_df)[1] > 0) {
-        pubchem_cid <- list()
-        cids <- cid_df$V1
-        
-        for (cid in cids) {
-          
-          pubchem_cid <- append(pubchem_cid, list(list(input = cid, 'DTXSID' = NULL, 'CID' = cid)))
-          
-        }
-        
-        df3 <- pd$DataFrame(pubchem_cid)
-      }
-      
-      
-      dfs_list <- list()
-      if (exists("df1")) dfs_list$df1 <- df1
-      if (exists("df2")) dfs_list$df2 <- df2
-      if (exists("df3")) dfs_list$df3 <- df3
-      
-      
-      df <- bind_rows(dfs_list)
-      
-      error_rows <- df %>%
-        filter(if_any(everything(), ~ . == 'error'))
-      
-      df_filt <- filter(df, !(input %in% error_rows$input))
-      df_filt <- mutate(df_filt, CID = as.character(CID))
-      
-      property_df <- get_properties_from_CIDs(paste(df_filt$CID, collapse = ","))
-      property_df <- mutate(property_df, CID = as.character(CID))
-      
-      synonym_list <- list()
-      for (cid in df_filt$CID) {
-        synonyms <- get_synonyms_from_CID(cid)
-        
-        synonym_list <- append(synonym_list, list(list('CID' = cid,'SYNONYMS' = synonyms)))
+        pubchem_smiles <- append(pubchem_smiles, list(list(input = smile,'DTXSID' = NULL, 'CID' = cid)))
         
       }
-      syn_df <- pd$DataFrame(synonym_list)
-      syn_df <- mutate(syn_df, CID = as.character(CID))
       
+      df2 <- pd$DataFrame(pubchem_smiles)
+    }
+    
+    if (dim(cid_df)[1] > 0) {
+      pubchem_cid <- list()
+      cids <- cid_df$V1
       
-      df_filt <- left_join(df_filt, property_df)
-      df_filt <- left_join(df_filt, syn_df)
-      
-      
-      
-      merged_df <- df_filt
-      #print(merged_df)
-      colnames(merged_df)[grep("Title", colnames(merged_df))] <- "Name"
-      #print(merged_df)
-      
-      missing_data(error_rows$input)
-      merged_df$Name <- gsub(" ", "_", merged_df$Name)
-      merged_df$ROMol <- lapply(merged_df$SMILES, function(smiles) {
+      for (cid in cids) {
         
-        return(Chem$MolFromSmiles(smiles))
-      })
+        pubchem_cid <- append(pubchem_cid, list(list(input = cid, 'DTXSID' = NULL, 'CID' = cid)))
+        
+      }
       
-      merged_df <- as.data.frame(merged_df)
+      df3 <- pd$DataFrame(pubchem_cid)
+    }
+    
+    
+    dfs_list <- list()
+    if (exists("df1")) dfs_list$df1 <- df1
+    if (exists("df2")) dfs_list$df2 <- df2
+    if (exists("df3")) dfs_list$df3 <- df3
+    
+    
+    df <- bind_rows(dfs_list)
+    
+    error_rows <- df %>%
+      filter(if_any(everything(), ~ . == 'error'))
+    
+    df_filt <- filter(df, !(input %in% error_rows$input))
+    df_filt <- mutate(df_filt, CID = as.character(CID))
+    
+    property_df <- get_properties_from_CIDs(paste(df_filt$CID, collapse = ","))
+    property_df <- mutate(property_df, CID = as.character(CID))
+    
+    synonym_list <- list()
+    for (cid in df_filt$CID) {
+      synonyms <- get_synonyms_from_CID(cid)
       
-      #print(merged_df)
+      synonym_list <- append(synonym_list, list(list('CID' = cid,'SYNONYMS' = synonyms)))
       
+    }
+    syn_df <- pd$DataFrame(synonym_list)
+    syn_df <- mutate(syn_df, CID = as.character(CID))
+    
+    
+    df_filt <- left_join(df_filt, property_df)
+    df_filt <- left_join(df_filt, syn_df)
+    
+    
+    
+    merged_df <- df_filt
+    #print(merged_df)
+    colnames(merged_df)[grep("Title", colnames(merged_df))] <- "Name"
+    #print(merged_df)
+    
+    missing_data(error_rows$input)
+    merged_df$Name <- gsub(" ", "_", merged_df$Name)
+    merged_df$ROMol <- lapply(merged_df$SMILES, function(smiles) {
       
-      
-      
-      merged_matrix(merged_df)
-      mol_struct(merged_df$ROMol)
-      event2_trigger(TRUE)
-      shinyjs::enable("fingerprint_button")
-      shinyjs::enable("fingerprint_type")
-      
-      rm(mixed_input)
+      return(Chem$MolFromSmiles(smiles))
     })
+    
+    merged_df <- as.data.frame(merged_df)
+    
+    #print(merged_df)
+    
+    
+    
+    
+    merged_matrix(merged_df)
+    mol_struct(merged_df$ROMol)
+    event2_trigger(TRUE)
+    shinyjs::enable("fingerprint_button")
+    shinyjs::enable("fingerprint_type")
+    
+    rm(mixed_input)
+    
+    remove_modal_spinner()
     
     
     
@@ -289,146 +384,138 @@ function(input, output, session) {
     req(input$use_example)
     mixed_input <- reactive_df()
     
-    mixed_input <- as.data.frame(trimws(mixed_input$V1))
-    colnames(mixed_input) <- "V1"
+    mixed_input$V1 <- trimws(mixed_input$V1)
+    
     
     duplicate_rows <- mixed_input[duplicated(mixed_input),]
     duplicate_rows_slot(duplicate_rows)
     mixed_input <- mixed_input %>% count(V1) %>% filter(n == 1) %>% subset(select = V1)
     
     
+    show_modal_spinner(text = "Processing example CIDs: Pulling data from PubChem...")
+    
+    numbers_only <- function(x) !grepl("\\D", x)
+    
+    mixed_input$DTXSID <- grepl("DTXSID", mixed_input$V1)
+    
+    mixed_input$CID <- numbers_only(mixed_input$V1)
+    
+    dtxsid_df <- filter(mixed_input, DTXSID == TRUE)
+    dtxsid_df <- subset(dtxsid_df, select = V1)
     
     
-    withProgress(message = "Processing:", value = 0, {
+    cid_df <- filter(mixed_input, CID == TRUE)
+    cid_df <- subset(cid_df, select = V1)
+    
+    
+    smiles_df <- filter(mixed_input, DTXSID == FALSE & CID == FALSE)
+    smiles_df <- subset(smiles_df, select = V1)
+    
+    if (dim(dtxsid_df)[1] > 0) {
+      pubchem_dtx <- list()
+      dtxsids <- dtxsid_df$V1
       
-      
-      
-      
-      numbers_only <- function(x) !grepl("\\D", x)
-      
-      mixed_input$DTXSID <- grepl("DTXSID", mixed_input$V1)
-      
-      mixed_input$CID <- numbers_only(mixed_input$V1)
-      
-      dtxsid_df <- filter(mixed_input, DTXSID == TRUE)
-      dtxsid_df <- subset(dtxsid_df, select = V1)
-      
-      
-      cid_df <- filter(mixed_input, CID == TRUE)
-      cid_df <- subset(cid_df, select = V1)
-      
-      
-      smiles_df <- filter(mixed_input, DTXSID == FALSE & CID == FALSE)
-      smiles_df <- subset(smiles_df, select = V1)
-      
-      incProgress(0.5, detail = "Pulling data from PubChem...")
-      
-      if (dim(dtxsid_df)[1] > 0) {
-        pubchem_dtx <- list()
-        dtxsids <- dtxsid_df$V1
+      for (dtxsid in dtxsids) {
+        cid <- get_cid_from_dtxsid(dtxsid)
         
-        for (dtxsid in dtxsids) {
-          cid <- get_cid_from_dtxsid(dtxsid)
-          
-          pubchem_dtx <- append(pubchem_dtx, list(list(input = dtxsid,'DTXSID' = dtxsid, 'CID' = cid)))
-          
-        }
-        
-        df1 <- pd$DataFrame(pubchem_dtx)
-      }
-      
-      
-      
-      if (dim(smiles_df)[1] > 0) {
-        pubchem_smiles <- list()
-        smiles <- smiles_df$V1
-        
-        for (smile in smiles) {
-          encoded <- base64encode(charToRaw(smile))
-          cid <- get_CID_from_SMILES(encoded)
-          
-          pubchem_smiles <- append(pubchem_smiles, list(list(input = smile,'DTXSID' = NULL, 'CID' = cid)))
-          
-        }
-        
-        df2 <- pd$DataFrame(pubchem_smiles)
-      }
-      
-      if (dim(cid_df)[1] > 0) {
-        pubchem_cid <- list()
-        cids <- cid_df$V1
-        
-        for (cid in cids) {
-          
-          pubchem_cid <- append(pubchem_cid, list(list(input = cid, 'DTXSID' = NULL, 'CID' = cid)))
-          
-        }
-        
-        df3 <- pd$DataFrame(pubchem_cid)
-      }
-      
-      
-      dfs_list <- list()
-      if (exists("df1")) dfs_list$df1 <- df1
-      if (exists("df2")) dfs_list$df2 <- df2
-      if (exists("df3")) dfs_list$df3 <- df3
-      
-      
-      df <- bind_rows(dfs_list)
-      
-      error_rows <- df %>%
-        filter(if_any(everything(), ~ . == 'error'))
-      
-      df_filt <- filter(df, !(input %in% error_rows$input))
-      df_filt <- mutate(df_filt, CID = as.character(CID))
-      
-      property_df <- get_properties_from_CIDs(paste(df_filt$CID, collapse = ","))
-      property_df <- mutate(property_df, CID = as.character(CID))
-      
-      synonym_list <- list()
-      for (cid in df_filt$CID) {
-        synonyms <- get_synonyms_from_CID(cid)
-        
-        synonym_list <- append(synonym_list, list(list('CID' = cid,'SYNONYMS' = synonyms)))
+        pubchem_dtx <- append(pubchem_dtx, list(list(input = dtxsid,'DTXSID' = dtxsid, 'CID' = cid)))
         
       }
-      syn_df <- pd$DataFrame(synonym_list)
-      syn_df <- mutate(syn_df, CID = as.character(CID))
       
+      df1 <- pd$DataFrame(pubchem_dtx)
+    }
+    
+    
+    
+    if (dim(smiles_df)[1] > 0) {
+      pubchem_smiles <- list()
+      smiles <- smiles_df$V1
       
-      df_filt <- left_join(df_filt, property_df)
-      df_filt <- left_join(df_filt, syn_df)
-      
-      
-      
-      merged_df <- df_filt
-      #print(merged_df)
-      colnames(merged_df)[grep("Title", colnames(merged_df))] <- "Name"
-      #print(merged_df)
-      
-      missing_data(error_rows$input)
-      merged_df$Name <- gsub(" ", "_", merged_df$Name)
-      merged_df$ROMol <- lapply(merged_df$SMILES, function(smiles) {
+      for (smile in smiles) {
+        encoded <- base64encode(charToRaw(smile))
+        cid <- get_CID_from_SMILES(encoded)
         
-        return(Chem$MolFromSmiles(smiles))
-      })
+        pubchem_smiles <- append(pubchem_smiles, list(list(input = smile,'DTXSID' = NULL, 'CID' = cid)))
+        
+      }
       
-      merged_df <- as.data.frame(merged_df)
+      df2 <- pd$DataFrame(pubchem_smiles)
+    }
+    
+    if (dim(cid_df)[1] > 0) {
+      pubchem_cid <- list()
+      cids <- cid_df$V1
       
-      #print(merged_df)
+      for (cid in cids) {
+        
+        pubchem_cid <- append(pubchem_cid, list(list(input = cid, 'DTXSID' = NULL, 'CID' = cid)))
+        
+      }
       
+      df3 <- pd$DataFrame(pubchem_cid)
+    }
+    
+    
+    dfs_list <- list()
+    if (exists("df1")) dfs_list$df1 <- df1
+    if (exists("df2")) dfs_list$df2 <- df2
+    if (exists("df3")) dfs_list$df3 <- df3
+    
+    
+    df <- bind_rows(dfs_list)
+    
+    error_rows <- df %>%
+      filter(if_any(everything(), ~ . == 'error'))
+    
+    df_filt <- filter(df, !(input %in% error_rows$input))
+    df_filt <- mutate(df_filt, CID = as.character(CID))
+    
+    property_df <- get_properties_from_CIDs(paste(df_filt$CID, collapse = ","))
+    property_df <- mutate(property_df, CID = as.character(CID))
+    
+    synonym_list <- list()
+    for (cid in df_filt$CID) {
+      synonyms <- get_synonyms_from_CID(cid)
       
+      synonym_list <- append(synonym_list, list(list('CID' = cid,'SYNONYMS' = synonyms)))
       
+    }
+    syn_df <- pd$DataFrame(synonym_list)
+    syn_df <- mutate(syn_df, CID = as.character(CID))
+    
+    
+    df_filt <- left_join(df_filt, property_df)
+    df_filt <- left_join(df_filt, syn_df)
+    
+    
+    
+    merged_df <- df_filt
+    #print(merged_df)
+    colnames(merged_df)[grep("Title", colnames(merged_df))] <- "Name"
+    #print(merged_df)
+    
+    missing_data(error_rows$input)
+    merged_df$Name <- gsub(" ", "_", merged_df$Name)
+    merged_df$ROMol <- lapply(merged_df$SMILES, function(smiles) {
       
-      merged_matrix(merged_df)
-      mol_struct(merged_df$ROMol)
-      event2_trigger(TRUE)
-      shinyjs::enable("fingerprint_button")
-      shinyjs::enable("fingerprint_type")
-      rm(mixed_input)
+      return(Chem$MolFromSmiles(smiles))
     })
     
+    merged_df <- as.data.frame(merged_df)
     
+    #print(merged_df)
+    
+    
+    
+    
+    merged_matrix(merged_df)
+    mol_struct(merged_df$ROMol)
+    event2_trigger(TRUE)
+    shinyjs::enable("fingerprint_button")
+    shinyjs::enable("fingerprint_type")
+    rm(mixed_input)
+    
+    remove_modal_spinner()
     
   }) ## ending second observation here = for example data
   
@@ -487,13 +574,67 @@ function(input, output, session) {
     
     
     fingerprint_slot(fingerprints)
+    
+    
+    #######################
+    # heatmap generation
+    ylgnbu_col <- sequential_hcl(9, "YlGnBu")
+    
+    
+    par(mfrow = c(1, 2), mar = c(5, 4, 4, 2) + 0.1)  
+    
+    hmap <- Heatmap(
+      as.matrix(tanimoto_distance),
+      show_row_names = T,
+      show_column_names = F,
+      #row_names_gp = gpar(col = ifelse(rownames(distance_matrix) %in% (filter(merged_data, type == "new"))$`chemical names`, "blue", "black")),
+      cluster_rows = T,
+      cluster_columns = T,
+      show_column_dend = T,
+      show_row_dend = T,
+      row_dend_reorder = T,
+      column_dend_reorder = T,
+      clustering_method_rows = "ward.D2", #top_annotation = colAnn,
+      clustering_method_columns = "ward.D2",col = ylgnbu_col,
+      width = unit(150, "mm"),border = TRUE,
+      heatmap_legend_param = list(
+        title = "Tanimoto Distance",
+        title_position = "leftcenter-rot",
+        labels_gp = gpar(fontsize = 12),
+        title_gp = gpar(fontsize = 12)),
+      column_gap=unit(1, "mm"))
+    
+    #ht = draw(hmap, heatmap_legend_side="left", annotation_legend_side="bottom")
+    
+    heatmap_slot(hmap)
+    #######################
+    
+    
     event3_trigger(TRUE)
     shinyjs::enable("fingerprint_button")
     shinyjs::enable("cutoff")
     shinyjs::enable("cluster")
   }) # ending the third observation event for fingerprint type
   
+  output$imageOutput1 <- renderPlot({
+    
+    req(heatmap_slot())
+    
+    draw(heatmap_slot(), heatmap_legend_side="left", annotation_legend_side="bottom")
+    
+  }, res = 100)
   
+  
+  output$heatmap_container <- renderUI({
+    if (is.null(heatmap_slot())) {
+      div(
+        style = "text-align: center; padding-top: 50px;",
+        h4("🕒 Heatmap will be generated after Fingerprint generation...")
+      )
+    } else {
+      plotOutput("imageOutput1", width = 1500, height = 1500)
+    }
+  })
   
   observeEvent(input$cluster, {
     req(event3_trigger())
@@ -600,6 +741,111 @@ function(input, output, session) {
     
   }) # ending the fourth observation of cluster cutoff
   
+  output$imageOutput3 <- renderPlotly({
+    
+    req(event3_trigger())
+    req(tanimoto_matrix())
+    req(clustering_done())
+    req(NMDS_slot())
+    
+    metaMDS_results.points <- metaMDS_results.points_slot()
+    
+    
+    
+    
+    g <- metaMDS_results.points %>% 
+      ggplot(., aes(x = MDS1, y = MDS3, text = Name)) +
+      geom_point(size = 2, col = "grey") +
+      geom_point(data = filter(metaMDS_results.points, cluster_ID_toPlot == "plot"), aes(x = MDS1, y = MDS3, col = cluster_ID), size = 4) +
+      #scale_color_manual(values = c('#7fc97f','#beaed4','#fdc086','#ffff99','#386cb0','#f0027f','#bf5b17','#666666')) +
+      theme_classic() +
+      theme(text = element_text(size = 15)) +
+      labs(title = "NMDS Plot from Distance Matrix",
+           x = "MDS1",
+           y = "MDS2")
+    
+    ggplotly(g, tooltip = "text")
+    
+    
+  })
+  
+  output$NMDS_container <- renderUI({
+    if (is.null(NMDS_slot())) {
+      div(
+        style = "text-align: center; padding-top: 50px;",
+        h4("🕒 NMDS plot will be generated after clustering is performed...")
+      )
+    } else {
+      plotlyOutput("imageOutput3", width = 800, height = 800)
+    }
+    
+    
+  })
+  
+  
+  
+  display_image <- function(file_path, title) {
+    img_r <- readPNG(file_path)
+    raster_img <- rasterGrob(img_r, interpolate = TRUE,
+                             width = unit(0.7, "npc"),
+                             height = unit(0.7, "npc"))
+    
+    arranged <- arrangeGrob(
+      raster_img,
+      top = textGrob(title, gp = gpar(fontsize = 12, col = "black"))
+    )
+    
+    return(arranged)
+  }
+  
+  output$cluster_pdf <- renderUI({
+    
+    if (is.null(clusters_slot())) {
+      div(
+        style = "text-align: center; padding-top: 50px;",
+        h4("🕒 Butina Clusters will be generated after clustering is performed...")
+      )
+    } else {
+      # Create a temporary file path for the PDF
+      pdf_path <- tempfile(fileext = ".pdf")
+      
+      # Generate multipage PDF
+      indices_greater_than1 <- indices_greater_than1_slot()
+      
+      if (length(indices_greater_than1) == 0) {
+        return(
+          tags$div(
+            style = "padding: 20px; color: #b00;",
+            tags$h4("No clusters found."),
+            tags$p("Try adjusting the cutoff parameter or check your input.")
+          )
+        )
+      }
+      
+      cluster_grobs <- lapply(seq_along(indices_greater_than1), function(i) {
+        file_path <- paste0("cluster", i, ".png")
+        title <- paste("Cluster", i)
+        display_image(file_path, title)
+      })
+      
+      pdf(pdf_path, width = 12, height = 8)
+      for (grob in cluster_grobs) {
+        grid.newpage()
+        grid.draw(grob)
+      }
+      dev.off()
+      
+      # Move the PDF into www/ so it can be served
+      www_pdf_path <- file.path("www", "clusters_only.pdf")
+      file.copy(pdf_path, www_pdf_path, overwrite = TRUE)
+      
+      # Embed the PDF using iframe
+      tags$iframe(style = "height:80vh; width:100%;", src = "clusters_only.pdf")
+    }
+    
+  })
+  
+ 
   
   output$download_ui <- renderUI({
     req(clustering_done())
@@ -654,7 +900,7 @@ function(input, output, session) {
       
       #' providing any duplicate rows
       duplicate_path <- file.path(temp_dir, "duplicated_entries.csv")
-      write.csv(duplicate_rows_slot(), duplicate_path, row.names = FALSE, col.names = FALSE)
+      write.csv(duplicate_rows_slot(), duplicate_path, row.names = FALSE)
       
       #' Providing a README of inputs from user
       if (input$use_example == TRUE) {
@@ -668,7 +914,7 @@ function(input, output, session) {
       }
       
       inputs_path <- file.path(temp_dir, "User_provided_inputs.txt")
-      write.table(inputs, inputs_path, sep = "\t", quote = FALSE, row.names = TRUE, col.names = FALSE)
+      write.table(inputs, inputs_path, sep = "\t", quote = FALSE, row.names = TRUE)
       
       #' creating the zip file
       zip(file, c(molecular_properties, missing_ID, cluster_pdf, heatmap_png, NMDS_png, readme_path,
@@ -678,135 +924,6 @@ function(input, output, session) {
     },
     contentType = "text/csv/pdf/png"
   )
-  
-  
-  
-  
-  display_image <- function(file_path, title) {
-    img_r <- readPNG(file_path)
-    raster_img <- rasterGrob(img_r, interpolate = TRUE,
-                             width = unit(0.7, "npc"),
-                             height = unit(0.7, "npc"))
-    
-    arranged <- arrangeGrob(
-      raster_img,
-      top = textGrob(title, gp = gpar(fontsize = 10, col = "black"))
-    )
-    
-    return(arranged)
-  }
-  
-  output$cluster_pdf <- renderUI({
-    req(clustering_done())
-
-    # Create a temporary file path for the PDF
-    pdf_path <- tempfile(fileext = ".pdf")
-    
-    # Generate multipage PDF
-    indices_greater_than1 <- indices_greater_than1_slot()
-    
-    if (length(indices_greater_than1) == 0) {
-      return(
-        tags$div(
-          style = "padding: 20px; color: #b00;",
-          tags$h4("No clusters found."),
-          tags$p("Try adjusting the cutoff parameter or check your input.")
-        )
-      )
-    }
-    
-    cluster_grobs <- lapply(seq_along(indices_greater_than1), function(i) {
-      file_path <- paste0("cluster", i, ".png")
-      title <- paste("Cluster", i)
-      display_image(file_path, title)
-    })
-    
-    pdf(pdf_path, width = 8, height = 8)
-    for (grob in cluster_grobs) {
-      grid.newpage()
-      grid.draw(grob)
-    }
-    dev.off()
-    
-    # Move the PDF into www/ so it can be served
-    www_pdf_path <- file.path("www", "clusters_only.pdf")
-    file.copy(pdf_path, www_pdf_path, overwrite = TRUE)
-    
-    # Embed the PDF using iframe
-    tags$iframe(style = "height:600px; width:100%;", src = "clusters_only.pdf")
-  })
-  
-  
-  output$imageOutput3 <- renderPlotly({
-    req(event3_trigger())
-    req(tanimoto_matrix())
-    req(clustering_done())
-    
-    
-    metaMDS_results.points <- metaMDS_results.points_slot()
-    
-    
-    g <- metaMDS_results.points %>% 
-      ggplot(., aes(x = MDS1, y = MDS3, text = Name)) +
-      geom_point(size = 2, col = "grey") +
-      geom_point(data = filter(metaMDS_results.points, cluster_ID_toPlot == "plot"), aes(x = MDS1, y = MDS3, col = cluster_ID), size = 4) +
-      #scale_color_manual(values = c('#7fc97f','#beaed4','#fdc086','#ffff99','#386cb0','#f0027f','#bf5b17','#666666')) +
-      theme_classic() +
-      theme(text = element_text(size = 15)) +
-      labs(title = "NMDS Plot from Distance Matrix",
-           x = "MDS1",
-           y = "MDS2")
-    
-    ggplotly(g, tooltip = "text")
-
-  })
-  
-  
-  
-  
-  
-  
-  output$imageOutput1 <- renderPlot({
-    req(tanimoto_matrix()) 
-    req(event3_trigger())
-    distance_matrix <- tanimoto_matrix()
-    merged_data <- merged_matrix()
-    
-    library(ComplexHeatmap)
-    
-    library(colorspace)
-    ylgnbu_col <- sequential_hcl(9, "YlGnBu")
-    
-    
-    par(mfrow = c(1, 2), mar = c(5, 4, 4, 2) + 0.1)  
-    
-    hmap <- Heatmap(
-      as.matrix(distance_matrix),
-      show_row_names = T,
-      show_column_names = F,
-      #row_names_gp = gpar(col = ifelse(rownames(distance_matrix) %in% (filter(merged_data, type == "new"))$`chemical names`, "blue", "black")),
-      cluster_rows = T,
-      cluster_columns = T,
-      show_column_dend = T,
-      show_row_dend = T,
-      row_dend_reorder = T,
-      column_dend_reorder = T,
-      clustering_method_rows = "ward.D2", #top_annotation = colAnn,
-      clustering_method_columns = "ward.D2",col = ylgnbu_col,
-      width = unit(150, "mm"),border = TRUE,
-      heatmap_legend_param = list(
-        title = "Tanimoto Distance",
-        title_position = "leftcenter-rot",
-        labels_gp = gpar(fontsize = 12),
-        title_gp = gpar(fontsize = 12)),
-      column_gap=unit(1, "mm"))
-    
-    ht = draw(hmap, heatmap_legend_side="left", annotation_legend_side="bottom")
-    
-    heatmap_slot(hmap)
-    
-  }, res = 100)
-  
   
 
   

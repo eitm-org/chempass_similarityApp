@@ -43,7 +43,9 @@ RUN R -e "install.packages(c(\
   'dplyr', \
   'scales', \
   'stringr', \
-  'ggplot2', \ 
+  'ggplot2', \
+  'shinycssloaders', \
+  'shinybusy', \ 
   'vegan', \
   'plotly', \
   'base64enc', \

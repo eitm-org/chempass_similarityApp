@@ -17,6 +17,7 @@ import base64
 
 
 
+
 def tanimoto_distance_matrix(fp_list):
     """Calculate distance matrix for fingerprint list"""
     dissimilarity_matrix = []
@@ -45,20 +46,93 @@ def cluster_fingerprints(fingerprints, cutoff):
 
 
 
-
-
 # function to get properties from a list of CIDs
 
 def get_properties_from_CIDs(CIDs):
-    """Function to take in valid CIDs (no missing CIDs are expected to be present in this input list) in batch and provide molecular properties"""
-    
-    url = f'https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/cid/{CIDs}/property/Title,SMILES,XLogP,HBondDonorCount,TPSA,HBondAcceptorCount,MolecularWeight,MolecularFormula/csv'
-    response = requests.get(url)
+    """Get molecular properties for a list of CIDs from PubChem. Returns DataFrame or 'error' on failure."""
 
-    data = pd.read_csv(StringIO(response.text))
-    
+    url = f'https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/cid/{CIDs}/property/Title,SMILES,XLogP,HBondDonorCount,TPSA,HBondAcceptorCount,MolecularWeight,MolecularFormula/csv'
+
+    try:
+        response = requests.get(url, timeout=10)
+    except requests.RequestException as e:
+        #print(f"❌ Request error for CIDs {CIDs}: {e}")
+        return "error"
+
+    if response.status_code != 200:
+        #print(f"⚠️ PubChem returned HTTP {response.status_code} for CIDs {CIDs}")
+        return "error"
+
+    try:
+        data = pd.read_csv(StringIO(response.text))
+    except Exception as e:
+        #print(f"❌ Failed to parse CSV for CIDs {CIDs}: {e}")
+        return "error"
+
+    if data.empty:
+        #print(f"⚠️ No property data returned for CIDs {CIDs}")
+        return "error"
+
     return data
 
+
+
+def get_synonyms_from_CID(CID):
+    """Get up to 10 synonyms from a PubChem CID. Returns 'error' if the request fails or no synonyms are found."""
+
+    url = f'https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/cid/{CID}/synonyms/TXT'
+
+    try:
+        response = requests.get(url, timeout=10)
+    except requests.RequestException as e:
+        return "error"
+
+    if response.status_code != 200:
+        return "error"
+
+    synonyms = response.text.strip().split('\n')[:10]
+
+    if not synonyms or synonyms == ['']:
+        return "error"
+
+    # Return up to 10 joined synonyms
+    joined_synonym = ";".join(synonyms)
+    return joined_synonym
+
+
+
+# function to get CID from smiles
+
+def get_CID_from_SMILES(smiles_b64):
+    """Get PubChem CID from base64-encoded SMILES. Returns CID string or 'error'."""
+
+    try:
+        smiles = base64.b64decode(smiles_b64).decode('utf-8').strip()
+    except Exception:
+        return "error"
+
+    url = "https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/smiles/cids/TXT"
+    headers = {'Content-Type': 'application/x-www-form-urlencoded'}
+    data = {'smiles': smiles}
+
+    try:
+        response = requests.post(url, data=data, headers=headers, timeout=10)
+    except requests.RequestException:
+        return "error"
+
+    if response.status_code != 200:
+        return "error"
+
+    cid = response.text.strip()
+
+    if not cid or cid == "0":
+        return "error"
+
+    return cid
+
+
+##################################################################################
+## extra code beyond this point
 
 
 
@@ -80,52 +154,3 @@ def get_cid_from_dtxsid(dtxsid):
             return 'error'          
     else:
         return 'error'
-
-
-def get_synonyms_from_CID(CID):
-    """Function to take in valid CIDs (no missing CIDs are expected to be present in this input list) one by one and provide upto ten synonyms"""
-
-
-    url = f'https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/cid/{CID}/synonyms/TXT'
-    response = requests.get(url)
-
-    synonyms = response.text.strip().split('\n')[:10]
-    joined_synonym = ";".join(synonyms)
-
-    return joined_synonym
-
-
-
-# function to get CID from smiles
-def get_CID_from_SMILES(smiles_b64):
-    """Function to take in valid SMILES one by one and provide CIDs. This function is set to handle special characters in R like back slashes or dots"""
-
-
-    smiles = base64.b64decode(smiles_b64).decode('utf-8')
-    
-    url = "https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/smiles/cids/TXT"
-
-    headers = {
-        'Content-Type': 'application/x-www-form-urlencoded'
-    }
-
-    data = {
-        'smiles': smiles
-    }
-
-    response = requests.post(url, data=data, headers=headers)
-
-    if  response.status_code == 200:
-        if response.text.strip():
-            return response.text.strip()
-        else:
-            return 'error'          
-    else:
-        return 'error'
-
-   
-
-
-
-
-

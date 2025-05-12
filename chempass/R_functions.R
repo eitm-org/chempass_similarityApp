@@ -60,7 +60,7 @@ sanitize_names <- function(x) {
 
 save_clusters_to_pdf <- function(clusters, list_mol, merged_df, output_filename = "clusters.pdf") {
   
-  grDevices::pdf(output_filename, width = 8, height = 8)
+  grDevices::pdf(output_filename, width = 12, height = 8)
   
   #' Iterate through the clusters
   #' This step depends on clusters generated from fingerprints and user provided cutoffs
@@ -176,7 +176,7 @@ save_clusters_to_pdf <- function(clusters, list_mol, merged_df, output_filename 
 #' Could be combined with the previous function 
 save_clusters_to_pdf_fcfp4 <- function(clusters, list_mol, merged_df, output_filename = "clusters.pdf") {
   
-  grDevices::pdf(output_filename, width = 8, height = 8)
+  grDevices::pdf(output_filename, width = 12, height = 8)
   
   
   for (i in seq_along(clusters)) {

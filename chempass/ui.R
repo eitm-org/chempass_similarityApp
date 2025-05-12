@@ -4,7 +4,8 @@ library(shiny)
 library(shinyjs)
 library(shinyWidgets)
 library(plotly)
-
+library(shinybusy)
+library(shinycssloaders)
 
 
 fluidPage( # fluidpage helps rescale the app display depending on the window its being viewed in
@@ -46,6 +47,8 @@ fluidPage( # fluidpage helps rescale the app display depending on the window its
       conditionalPanel(
         condition = "input.use_example == true",
         p("Processing an arbitrary list of 20 CIDs provided as example data"),
+        tags$a(href = "CID_example_data.csv", "Download example data",
+               style = "color: #007bff; text-decoration: underline;"),
       ),
       
       conditionalPanel(
@@ -73,7 +76,42 @@ fluidPage( # fluidpage helps rescale the app display depending on the window its
             )
           ),
           
-          tags$img(src = "example_table_image.png", width = "70%", height = "auto"), 
+          tags$table(
+            border = 1,
+            style = "text-align:left; margin-top:20px;",
+            
+            tags$colgroup(
+              tags$col(style = "width:50%"),
+              tags$col(style = "width:50%")
+            ),
+            
+            tags$tbody(
+              tags$tr(
+                tags$td("DTXSID5025659"),
+                tags$td("")  # empty column
+              ),
+              tags$tr(
+                tags$td("DTXSID5025811"),
+                tags$td("")
+              ),
+              tags$tr(
+                tags$td("6950"),
+                tags$td("")
+              ),
+              tags$tr(
+                tags$td("8295"),
+                tags$td("")
+              ),
+              tags$tr(
+                tags$td("C(C(=O)NCC(=O)O)N"),
+                tags$td("")
+              ),
+              tags$tr(
+                tags$td("CC(=O)NCCCCN"),
+                tags$td("")
+              )
+            )
+          ), 
         ),
         
         # File input itself
@@ -120,9 +158,31 @@ fluidPage( # fluidpage helps rescale the app display depending on the window its
     ),
     mainPanel(
       tabsetPanel(
-        tabPanel("Heatmap", plotOutput("imageOutput1", width = 1500, height = 1500)),
-        tabPanel("Butina Clusters", uiOutput("cluster_pdf")),
-        tabPanel("NMDS Plot", plotlyOutput("imageOutput3", width = 800, height = 800)),
+        tabPanel("Heatmap", 
+                 withSpinner(
+                   uiOutput("heatmap_container", width = 1500, height = 1500),
+                   type = 6,  
+                   color = "#0dc5c1",  
+                   proxy.height = "150px"  
+                   )
+                 ),
+        
+        tabPanel("Butina Clusters",
+                 withSpinner(
+                   uiOutput("cluster_pdf", width = 1500, height = 1500),
+                   type = 6,  
+                   color = "#0dc5c1",  
+                   proxy.height = "150px"  
+                 )
+        ),
+        tabPanel("NMDS Plot",
+                 withSpinner(
+                   uiOutput("NMDS_container", width = 800, height = 800),
+                   type = 6,  
+                   color = "#0dc5c1",  
+                   proxy.height = "150px"  
+                 )
+        ),
         
       )
     )
