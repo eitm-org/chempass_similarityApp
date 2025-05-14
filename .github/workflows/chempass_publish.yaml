@@ -1,0 +1,51 @@
+name: publish
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  actions: write
+  checks: write
+  contents: write
+  deployments: write
+  issues: write
+  packages: write
+  pull-requests: write
+  repository-projects: write
+  security-events: write
+  statuses: write
+
+jobs:
+  publish-chempass_similarity:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v2
+
+    - name: Login to GitHub Container Registry
+      uses: docker/login-action@v1
+      with:
+        registry: ghcr.io
+        username: ${{ secrets.GH_USER }}
+        password: ${{ secrets.CHEMPASS_GITHUB_TOKEN }}
+
+    - name: Build the chempass_similarity Docker image
+      run: |
+        docker build . --tag ghcr.io/eitm-org/chempass_similarity:latest
+        docker push ghcr.io/eitm-org/chempass_similarity:latest
+
+    - name: Executing Remote SSH Command to Pull Docker Image to chempass public server
+      uses: appleboy/ssh-action@master
+      with:
+        host: ${{ secrets.CHEMPASS_HOST }}
+        username: ${{ secrets.CHEMPASS_USER }}
+        key: ${{ secrets.CHEMPASS_PRIVATE_KEY }}
+        port: 22
+        script: |
+          docker login ghcr.io -u ${{ secrets.GH_USER }} --password ${{ secrets.CHEMPASS_GITHUB_TOKEN }} && \
+          docker pull ghcr.io/eitm-org/chempass_similarity:latest && \
+          (docker stop chempass_similarity || true) && \
+          (docker rm chempass_similarity || true) && \
+          docker run -d --name chempass_similarity -p 3838:3838 ghcr.io/eitm-org/chempass_similarity:latest
