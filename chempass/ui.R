@@ -116,7 +116,7 @@ fluidPage( # fluidpage helps rescale the app display depending on the window its
         
         # File input itself
         fileInput("file_upload", label = NULL),
-        actionButton("process_file", "1 - Process This File", style = "color: white; background-color: #993404; border-color: black;")
+        actionButton("process_file", "1 - Process This File", style = "color: white; background-color: #A96D4B; border-color: black;")
       ),
       
      
@@ -134,7 +134,7 @@ fluidPage( # fluidpage helps rescale the app display depending on the window its
         p("Please use the refresh button to change fingerprint type selection and observe the heatmap change accordingly.")
       ),
       selectInput("fingerprint_type", "", choices = c("ECFP4", "FCFP4")),
-      actionButton("fingerprint_button", "2 - Generate Fingerprints", style = "color: white; background-color: #54278f; border-color: black;"),
+      actionButton("fingerprint_button", "2 - Generate Fingerprints", style = "color: white; background-color: #433e2e; border-color: black;"),
       
       p("          "),
       tags$details(
@@ -148,7 +148,7 @@ fluidPage( # fluidpage helps rescale the app display depending on the window its
         p("Please use the refresh button to change clustering cutoff and observe the Butina clusters and NMDS plots change accordingly.")
       ),
       numericInput("cutoff", "", value = 0.2, step = 0.01),
-      actionButton("cluster", "3 - Generate Butina Compound Clusters", style = "color: white; background-color: #08519c; border-color: black;"),
+      actionButton("cluster", "3 - Generate Butina Compound Clusters", style = "color: white; background-color: #3a7e9b; border-color: black;"),
       
       tags$head(
         tags$style(HTML("a.action-button[disabled] {
@@ -162,7 +162,7 @@ fluidPage( # fluidpage helps rescale the app display depending on the window its
                  withSpinner(
                    uiOutput("heatmap_container", width = 1500, height = 1500),
                    type = 6,  
-                   color = "#0dc5c1",  
+                   color = "#636363",  
                    proxy.height = "150px"  
                    )
                  ),
@@ -171,7 +171,7 @@ fluidPage( # fluidpage helps rescale the app display depending on the window its
                  withSpinner(
                    uiOutput("cluster_pdf", width = 1500, height = 1500),
                    type = 6,  
-                   color = "#0dc5c1",  
+                   color = "#636363",  
                    proxy.height = "150px"  
                  )
         ),
@@ -179,7 +179,7 @@ fluidPage( # fluidpage helps rescale the app display depending on the window its
                  withSpinner(
                    uiOutput("NMDS_container", width = 800, height = 800),
                    type = 6,  
-                   color = "#0dc5c1",  
+                   color = "#636363",  
                    proxy.height = "150px"  
                  )
         ),

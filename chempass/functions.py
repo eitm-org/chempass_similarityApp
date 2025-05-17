@@ -131,6 +131,52 @@ def get_CID_from_SMILES(smiles_b64):
     return cid
 
 
+def get_cid_from_dtxsid(dtxsid):
+    if not dtxsid or not isinstance(dtxsid, str):
+        return "error"
+
+    url = f'https://pubchem.ncbi.nlm.nih.gov/rest/pug/substance/xref/RegistryID/{dtxsid}/cids/TXT'
+
+    try:
+        response = requests.get(url, timeout=10)
+    except requests.RequestException:
+        return "error"
+
+    if response.status_code != 200:
+        return "error"
+
+    cid = response.text.strip()
+
+    if not cid or not cid.isdigit():
+        return "error"
+
+    return cid
+
+
+def check_cid(CID):
+    
+
+    url = f'https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/cid/{CID}/property/Title/TXT'
+
+    try:
+        response = requests.get(url, timeout=10)
+    except requests.RequestException:
+        return "error"
+
+    if response.status_code != 200:
+        return "error"
+
+    name = response.text.strip()
+
+    if not name:
+        return "error"
+
+    return name
+
+
+
+
+
 ##################################################################################
 ## extra code beyond this point
 
@@ -143,14 +189,4 @@ def get_CID_from_CAS(CASRN):
     response = requests.get(url)
     return response.text.strip()
 
-# function to get CID from DTXSID
-def get_cid_from_dtxsid(dtxsid):
-    url = f'https://pubchem.ncbi.nlm.nih.gov/rest/pug/substance/xref/RegistryID/{dtxsid}/cids/TXT'
-    response = requests.get(url)
-    if  response.status_code == 200:
-        if response.text.strip():
-            return response.text.strip()
-        else:
-            return 'error'          
-    else:
-        return 'error'
+

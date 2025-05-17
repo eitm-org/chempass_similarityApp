@@ -1,3 +1,1 @@
-library(testthat)
-
-expect(TRUE)
+shinytest2::test_app()

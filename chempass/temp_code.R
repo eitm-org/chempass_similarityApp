@@ -254,8 +254,179 @@ cid <- tryCatch({
 })
 
 
+###############################################################################
+### testing chunks of code
+###############################################################################
+
+mixed_input <- read.csv("/Users/kdabke/Documents/GitHub/CHEMPASS_Rshiny/test_files/SMILES_test_file3.csv",
+                        header = FALSE, stringsAsFactors = FALSE)
+
+mixed_input$V1 <- trimws(mixed_input$V1)
 
 
+duplicate_rows <- mixed_input[duplicated(mixed_input),]
+mixed_input <- mixed_input %>% count(V1) %>% filter(n == 1) %>% subset(select = V1)
+
+
+
+numbers_only <- function(x) !grepl("\\D", x)
+
+mixed_input$DTXSID <- grepl("DTXSID", mixed_input$V1)
+
+mixed_input$CID <- numbers_only(mixed_input$V1)
+
+dtxsid_df <- filter(mixed_input, DTXSID == TRUE)
+dtxsid_df <- subset(dtxsid_df, select = V1)
+
+
+cid_df <- filter(mixed_input, CID == TRUE)
+cid_df <- subset(cid_df, select = V1)
+
+
+smiles_df <- filter(mixed_input, DTXSID == FALSE & CID == FALSE)
+smiles_df <- subset(smiles_df, select = V1)
+
+
+if (dim(dtxsid_df)[1] > 0) {
+  pubchem_dtx <- list()
+  dtxsids <- dtxsid_df$V1
+  
+  for (dtxsid in dtxsids) {
+    cid <- tryCatch({
+      get_cid_from_dtxsid(dtxsid)
+    }, error = function(e) {
+      #message("Retrying once after error...")
+      Sys.sleep(1)
+      tryCatch(get_cid_from_dtxsid(dtxsid), error = function(e2) {
+        #message("Second attempt failed.")
+        "error"
+      })
+    })
+    
+    pubchem_dtx <- append(pubchem_dtx, list(list(input = dtxsid,'DTXSID' = dtxsid, 
+                                                 'CID' = cid, 'TITLE' = NULL)))
+    
+  }
+  
+  df1 <- pd$DataFrame(pubchem_dtx)
+  df1 <- df1 %>% count(CID) %>% filter(n == 1)
+}
+
+
+
+
+if (dim(smiles_df)[1] > 0) {
+  pubchem_smiles <- list()
+  smiles <- smiles_df$V1
+  
+  for (smile in smiles) {
+    encoded <- base64encode(charToRaw(smile))
+    #cid <- get_CID_from_SMILES(encoded)
+    
+    cid <- tryCatch({
+      get_CID_from_SMILES(encoded)
+    }, error = function(e) {
+      message("Retrying once after error...")
+      Sys.sleep(1)
+      tryCatch(get_CID_from_SMILES(encoded), error = function(e2) {
+        message("Second attempt failed.")
+        "error"
+      })
+    })
+    
+    pubchem_smiles <- append(pubchem_smiles, list(list(input = smile,'DTXSID' = NULL, 
+                                                       'CID' = cid, 'TITLE' = NULL)))
+    
+  }
+  
+  df2 <- pd$DataFrame(pubchem_smiles)
+  df2 <- df2 %>% count(CID) %>% filter(n == 1)
+}
+
+
+
+if (dim(cid_df)[1] > 0) {
+  pubchem_cid <- list()
+  cids <- cid_df$V1
+  
+  for (cid in cids) {
+    title <- check_cid(cid)
+    pubchem_cid <- append(pubchem_cid, list(list(input = cid, 'DTXSID' = NULL, 'CID' = cid,
+                                                 'TITLE' = title)))
+    
+  }
+  
+  df3 <- pd$DataFrame(pubchem_cid)
+  df3 <- df3 %>% count(CID) %>% filter(n == 1)
+}
+
+
+
+
+
+dfs_list <- list()
+if (exists("df1")) dfs_list$df1 <- df1
+if (exists("df2")) dfs_list$df2 <- df2
+if (exists("df3")) dfs_list$df3 <- df3
+
+df <- bind_rows(dfs_list)
+error_rows <- df %>%
+  filter(if_any(everything(), ~ . == 'error'))
+
+
+df_filt <- filter(df, !(input %in% error_rows$input))
+df_filt <- subset(df_filt, select = -c(TITLE))
+df_filt <- mutate(df_filt, CID = as.character(CID))
+
+property_df <- get_properties_from_CIDs(paste(df_filt$CID, collapse = ","))
+property_df <- mutate(property_df, CID = as.character(CID))
+
+
+missing_names <- (property_df[which(is.na(property_df$Title)),])$CID
+
+
+if(length(missing_names) > 0) {
+  property_df <- property_df[-c(which(is.na(property_df$Title))),]
+  
+  
+}
+synonym_list <- list()
+for (cid in df_filt$CID) {
+  synonyms <- get_synonyms_from_CID(cid)
+  
+  synonym_list <- append(synonym_list, list(list('CID' = cid,'SYNONYMS' = synonyms)))
+  
+}
+syn_df <- pd$DataFrame(synonym_list)
+syn_df <- mutate(syn_df, CID = as.character(CID))
+
+#print(df_filt)
+df_filt <- left_join(df_filt, property_df)
+df_filt <- left_join(df_filt, syn_df)
+
+
+if(length(missing_names) > 0) {
+  df_filt <- df_filt[-c(which(is.na(df_filt$Title))),]
+}
+
+
+
+#print(df_filt)
+
+merged_df <- df_filt
+#print(merged_df)
+colnames(merged_df)[grep("Title", colnames(merged_df))] <- "Name"
+#print(merged_df)
+
+missing_data(c(error_rows$input, missing_names))
+
+merged_df$Name <- gsub(" ", "_", merged_df$Name)
+merged_df$ROMol <- lapply(merged_df$SMILES, function(smiles) {
+  
+  return(Chem$MolFromSmiles(smiles))
+})
+
+merged_df <- as.data.frame(merged_df)
 
 
 
