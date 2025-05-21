@@ -275,6 +275,217 @@ save_clusters_to_pdf_fcfp4 <- function(clusters, list_mol, merged_df, output_fil
 }
 
 
+#' function for processing input DTXSID through Pubchem
+
+dtxsid_pubchem <- function(dtxsid_df){
+  if (dim(dtxsid_df)[1] > 0) {
+    pubchem_dtx <- list()
+    dtxsids <- dtxsid_df$V1
+    
+    for (dtxsid in dtxsids) {
+      cid <- tryCatch({
+        get_cid_from_dtxsid(dtxsid)
+      }, error = function(e) {
+        #message("Retrying once after error...")
+        Sys.sleep(1)
+        tryCatch(get_cid_from_dtxsid(dtxsid), error = function(e2) {
+          #message("Second attempt failed.")
+          "error"
+        })
+      })
+      
+      pubchem_dtx <- append(pubchem_dtx, list(list(input = dtxsid,'DTXSID' = dtxsid, 
+                                                   'CID' = cid, 'TITLE' = NULL)))
+      
+    }
+    
+    df1 <- pd$DataFrame(pubchem_dtx)
+    #' this ensures that if one dtxsid gives multiple CIDs from pubchem, only 1 of them is retained
+    df1 <- df1 %>% distinct(CID, .keep_all = TRUE)
+  }
+  return(df1)
+}
+
+#' function for processing input SMILES through Pubchem
+smiles_pubchem <- function(smiles_df){
+  
+  if (dim(smiles_df)[1] > 0) {
+    pubchem_smiles <- list()
+    smiles <- smiles_df$V1
+    
+    for (smile in smiles) {
+      smile <- gsub("\\s+", "", smile)
+      encoded <- base64encode(charToRaw(smile))
+      #cid <- get_CID_from_SMILES(encoded)
+      
+      cid <- tryCatch({
+        get_CID_from_SMILES(encoded)
+      }, error = function(e) {
+        #message("Retrying once after error...")
+        Sys.sleep(1)
+        tryCatch(get_CID_from_SMILES(encoded), error = function(e2) {
+          #message("Second attempt failed.")
+          "error"
+        })
+      })
+      
+      pubchem_smiles <- append(pubchem_smiles, list(list(input = smile,'DTXSID' = NULL, 
+                                                         'CID' = cid, 'TITLE' = NULL)))
+      
+    }
+    
+    df2 <- pd$DataFrame(pubchem_smiles)
+    #' this ensures that if one smiles gives multiple CIDs from pubchem, only 1 of them is retained
+    df2 <- df2 %>% distinct(CID, .keep_all = TRUE)
+  }
+  
+  return(df2)
+  
+}
+
+#' function for processing input CID 
+#' this function takes the user provided CIDs and checks if they have existing titles in Pubchem
+#' since the names of compounds are used downstream, this is important to be present
+
+input_cid_reformating <- function(cid_df){
+  
+  if (dim(cid_df)[1] > 0) {
+    pubchem_cid <- list()
+    cids <- cid_df$V1
+    
+    for (cid in cids) {
+      
+      title <- tryCatch({
+        check_cid(cid)
+      }, error = function(e) {
+        #message("Retrying once after error...")
+        Sys.sleep(1)
+        tryCatch(check_cid(cid), error = function(e2) {
+          #message("Second attempt failed.")
+          "error"
+        })
+      })
+      
+      pubchem_cid <- append(pubchem_cid, list(list(input = cid, 'DTXSID' = NULL, 'CID' = cid,
+                                                   'TITLE' = title)))
+      
+    }
+    
+    df3 <- pd$DataFrame(pubchem_cid)
+    #' if one CID returns multiple titles from pubchem then it keeps only one
+    df3 <- df3 %>% distinct(CID, .keep_all = TRUE)
+  }
+  
+  return(df3)
+}
+
+#' function to get synonyms from CIDs
+
+cid_to_synonym <- function(df_filt){
+  
+  synonym_list <- list()
+  for (cid in df_filt$CID) {
+    
+    synonyms <- tryCatch({
+      get_synonyms_from_CID(cid)
+    }, error = function(e) {
+      #message("Retrying once after error...")
+      Sys.sleep(1)
+      tryCatch(get_synonyms_from_CID(cid), error = function(e2) {
+        #message("Second attempt failed.")
+        "error"
+      })
+    })
+    
+    synonym_list <- append(synonym_list, list(list('CID' = cid,'SYNONYMS' = synonyms)))
+    
+  }
+  
+  syn_df <- pd$DataFrame(synonym_list)
+  syn_df <- mutate(syn_df, CID = as.character(CID))
+  
+  return(syn_df)
+  
+}
+
+#' function for downstream analysis of cid
+#' includes getting synonyms, properties from pubchem
+#' handling missing titles
+#' 
+cid_processing <- function(dfs_list){
+  
+  df <- bind_rows(dfs_list)
+  
+  #' checking for errors which are added during Pubchem API search
+  error_rows <- df %>%
+    filter(if_any(everything(), ~ . == 'error'))
+  
+  #' this removes the errors from the data frame
+  #' if there are no error rows, it just saves the same dataframe as df_filt
+  
+  if (dim(error_rows)[1] > 1) {
+    df_filt <- filter(df, !(input %in% error_rows$input))
+    
+  }else{
+    df_filt <- df
+  }
+  
+  
+  
+  #' now to catch the missing names from titles
+  #' so this checks whether a CID has a title missing
+  #' and collects those missing into a new variable called missing_names
+  missing_names <- (df_filt[which(is.na(df_filt$Title)),])$CID
+  
+  #' if there are missing_names, it removes the entire row from the datafrmae
+  #' this ensures that downstream, the CIDs that get processed are clean
+  
+  if(length(missing_names) > 0) {
+    df_filt <- df_filt[-c(which(is.na(df_filt$Title))),]
+  }
+  
+  #' this removes the title column since it gets added during cid check
+  df_filt <- subset(df_filt, select = -c(TITLE))
+  
+  #' mutates the cid into a character
+  df_filt <- mutate(df_filt, CID = as.character(CID))
+  
+  
+  # get properties from Pubchem
+  property_df <- tryCatch({
+    get_properties_from_CIDs(paste(df_filt$CID, collapse = ","))
+  }, error = function(e) {
+    #message("Retrying once after error...")
+    Sys.sleep(1)
+    tryCatch(get_properties_from_CIDs(paste(df_filt$CID, collapse = ",")), error = function(e2) {
+      #message("Second attempt failed.")
+      "error"
+    })
+  })
+  
+  #' re-enforces that the CIDs is a character column
+  #' this is to ensure left join works downstream
+  property_df <- mutate(property_df, CID = as.character(CID))
+  
+  syn_df <- cid_to_synonym(df_filt)
+  
+  
+  df_filt <- left_join(df_filt, property_df) # only common column here should be CID
+  df_filt <- left_join(df_filt, syn_df) # only common column here is CID
+  
+  return(df_filt)
+}
+
+
+
+
+
+
+
+
+
+
+
 #' adding a README that gets downloaded with other files 
 #' explanations for the plots and files generated as outputs for this tool
 readme_text <- "

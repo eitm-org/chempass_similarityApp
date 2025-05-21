@@ -32,12 +32,12 @@ fluidPage( # fluidpage helps rescale the app display depending on the window its
       tags$img(src = "logo.jpg", class = "title-logo")
   ),
   # title of app - will be changed
-  titlePanel("CHEMPASS; A Tool for Rapid Chemical Structure Similarity Scoring and Clustering from Common Identifiers."),
+  titlePanel("CHEMPASS; A Tool for Chemical Structure Similarity Scoring and Clustering."),
   p("Upload your list of compounds in .csv/.txt format either as CID/DTXSIDs/SMILES, select your choice of fingerprint generation, set the clustering threshold, and explore cluster-level statistics and heatmaps."),
-  p("Outputs include a .pdf of clusters with similarity scores, molecular properties of compounds, png of heatmap and NMDS plots."),
+  p("zip file for download includes a .pdf of clusters with similarity scores, molecular properties of compounds, high resolution images of heatmap and NMDS plots."),
   shinyjs::useShinyjs(),
   tags$script(HTML("Shiny.setInputValue('disable_ready', true);")),
-  uiOutput("download_ui"),
+  #uiOutput("download_ui"),
   # sidepanel layout and buttons
   sidebarLayout(
     sidebarPanel(
@@ -46,7 +46,7 @@ fluidPage( # fluidpage helps rescale the app display depending on the window its
       
       conditionalPanel(
         condition = "input.use_example == true",
-        p("Processing an arbitrary list of 20 CIDs provided as example data"),
+        p("Processing an arbitrary list of 15 CIDs provided as example data"),
         tags$a(href = "CID_example_data.csv", "Download example data",
                style = "color: #007bff; text-decoration: underline;"),
       ),
@@ -131,7 +131,6 @@ fluidPage( # fluidpage helps rescale the app display depending on the window its
           tags$li(strong("ECFP4:"), " Focuses on atom and bond connectivity (radius 2)."),
           tags$li(strong("FCFP4:"), " Focuses on functional classes of atoms like donor/acceptor roles.")
         ),
-        p("Please use the refresh button to change fingerprint type selection and observe the heatmap change accordingly.")
       ),
       selectInput("fingerprint_type", "", choices = c("ECFP4", "FCFP4")),
       actionButton("fingerprint_button", "2 - Generate Fingerprints", style = "color: white; background-color: #433e2e; border-color: black;"),
@@ -145,10 +144,12 @@ fluidPage( # fluidpage helps rescale the app display depending on the window its
         p("• A ", strong("higher cutoff"), " (e.g., 0.6) forms larger, looser clusters."),
         p("Adjust the cutoff depending on how strict you want your clustering to be."),
         p("For chemical structure clustering, a cutoff of 0.2–0.4 is often a good starting point."),
-        p("Please use the refresh button to change clustering cutoff and observe the Butina clusters and NMDS plots change accordingly.")
+        p("For smaller datasets with fewer than 20 compounds, you may need to increase the cutoff beyond 0.4")
       ),
-      numericInput("cutoff", "", value = 0.2, step = 0.01),
-      actionButton("cluster", "3 - Generate Butina Compound Clusters", style = "color: white; background-color: #3a7e9b; border-color: black;"),
+      numericInput("cutoff", "", value = 0.5, step = 0.01),
+      actionButton("cluster", "3 - Generate Butina Clusters", style = "color: white; background-color: #3a7e9b; border-color: black;"),
+      p("          "),
+      uiOutput("download_ui"),
       
       tags$head(
         tags$style(HTML("a.action-button[disabled] {

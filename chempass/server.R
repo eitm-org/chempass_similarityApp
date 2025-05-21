@@ -5,7 +5,6 @@ library(png)
 library(grid)
 library(gridExtra)
 library(ComplexHeatmap)
-#library(tidyverse)
 library(colorspace)
 library(vegan)
 library(base64enc)
@@ -18,9 +17,11 @@ library(stringr)
 library(ggplot2)
 library(plotly)
 
-
+#' rdkit conda environment
 use_miniconda("my-rdkit-env2")
 
+#' python functions that are used throughout the script
+#' mainly contains functions for getting information from Pubchem
 source_python("functions.py")
 
 
@@ -38,9 +39,17 @@ PandasTools <- import("rdkit.Chem.PandasTools")
 plt <- import("matplotlib.pyplot")
 Draw <- import("rdkit.Chem.Draw")
 
+#' R functions like tanimoto similarity
+#' cleaning compound names
+#' saving cluster images to pdf
+#' readme text
 source("R_functions.R")
 
+#' start of the server 
 function(input, output, session) {
+  
+  #' defining reactive elements here at various stages
+  #' 
   reactive_df <- reactiveVal(NULL)
   event2_trigger <- reactiveVal(FALSE) 
   event3_trigger <- reactiveVal(FALSE)
@@ -60,6 +69,7 @@ function(input, output, session) {
   toggle <- reactiveVal(NULL)
   metaMDS_results.points_slot <- reactiveVal(NULL)
   
+  #' at the start of the app, all buttons are disabled along with drop down menus
   observe({
     shinyjs::disable("process_file")
     shinyjs::disable("fingerprint_type")
@@ -69,7 +79,7 @@ function(input, output, session) {
     
   })
   
-  reset_counter <- reactiveVal(0)
+  #' this observation chunk handles the example data processing
 
   observeEvent(input$use_example, {
     
@@ -94,6 +104,9 @@ function(input, output, session) {
       NMDS_slot(NULL)
       
     }else{
+      #' this resets the file upload 
+      #' so if user sets toggle on and the example data sets processed
+      #' and then user sets the toggle off again, it resets the whole app
       print("user set toggle to off")
       reset("file_upload")
       shinyjs::disable("process_file")
@@ -118,8 +131,9 @@ function(input, output, session) {
   })
   
   
-  
-  ## code to check file input from user
+  #' this observeEvent is for checking uploaded file format
+  #' files need to be either csv or txt
+  #' check if someone does not save an extension to file then what happens here?
   observeEvent(input$file_upload, {
     req(input$file_upload)
     
@@ -139,13 +153,14 @@ function(input, output, session) {
       
       sendSweetAlert(
         session,
-        title = "✅ Correct file type, thank you!",
-        #text = "Please upload a .csv or .txt file only.",
+        title = "✅ Correct file type uploaded.",
         type = "success",
         #timer = 4000,
         #showConfirmButton = FALSE
       )
       
+      #' once the file format check happens the files gets read in as mixed_input
+      #' still all buttons and dropdown menus are greyed out
       mixed_input <- read.csv(input$file_upload$datapath, header = FALSE, stringsAsFactors = FALSE) 
       colnames(mixed_input) <- "V1"
       reactive_df(mixed_input)
@@ -183,7 +198,11 @@ function(input, output, session) {
     
     tryCatch({
       
-      # Check number of columns
+      #' Check number of columns
+      #' if user provides more than 1 column than it errors out and resets file uplaod
+      #' what if the other column is just NAs which sometimes happens with csv in excel sheets
+      #' test this
+      #' ideally the tool should be able to remove that column it its all NAs
       if (ncol(mixed_input) != 1) {
         sendSweetAlert(
           session,
@@ -197,8 +216,11 @@ function(input, output, session) {
         return(NULL)
       }
       
-      # Clean and name the column
+      #' trims the white spaces around text in input
       mixed_input$V1 <- trimws(mixed_input$V1)
+      
+      #' identifies duplicated rows
+      #' and saves them to a reactive element for use later
       duplicate_rows <- mixed_input[duplicated(mixed_input), , drop = FALSE]
       duplicate_rows_slot(duplicate_rows)
       ######################
@@ -227,7 +249,7 @@ function(input, output, session) {
       }
       
       
-      mixed_input <- mixed_input %>% count(V1) %>% filter(n == 1) %>% subset(select = V1)
+      mixed_input <- mixed_input %>% distinct(V1, .keep_all = TRUE)
       
       
     }, error = function(e) {
@@ -245,8 +267,9 @@ function(input, output, session) {
     shinyjs::disable("process_file")
     
     
-    show_modal_spinner(text = "Processing input: Pulling data from PubChem...")
+    show_modal_spinner(text = "Processing input: Pulling data from PubChem, might take >1 min. for large lists of compounds...")
     
+     
     numbers_only <- function(x) !grepl("\\D", x)
     
     mixed_input$DTXSID <- grepl("DTXSID", mixed_input$V1)
@@ -263,76 +286,39 @@ function(input, output, session) {
     
     smiles_df <- filter(mixed_input, DTXSID == FALSE & CID == FALSE)
     smiles_df <- subset(smiles_df, select = V1)
-  
-    if (dim(dtxsid_df)[1] > 0) {
-      pubchem_dtx <- list()
-      dtxsids <- dtxsid_df$V1
-      
-      for (dtxsid in dtxsids) {
-        cid <- tryCatch({
-          get_cid_from_dtxsid(dtxsid)
-        }, error = function(e) {
-          #message("Retrying once after error...")
-          Sys.sleep(1)
-          tryCatch(get_cid_from_dtxsid(dtxsid), error = function(e2) {
-            #message("Second attempt failed.")
-            "error"
-          })
-        })
-        
-        pubchem_dtx <- append(pubchem_dtx, list(list(input = dtxsid,'DTXSID' = dtxsid, 
-                                                     'CID' = cid, 'TITLE' = NULL)))
-        
-      }
-      
-      df1 <- pd$DataFrame(pubchem_dtx)
-      df1 <- df1 %>% group_by(CID) %>% filter(n() == 1) %>% ungroup()
+    
+    #' these individual components could be written up as functions
+    #' so that they can be individually tested with testthat
+    #' 
+    #' This could be a dtxsid function
+    #' usage eg: 
+    #' df1 <- dtxsid_pubchem(dtxsid_df)
+    #' 
+    
+    if (dim(dtxsid_df)[1] > 0){
+      df1 <- dtxsid_pubchem(dtxsid_df)
     }
     
     
     
-    if (dim(smiles_df)[1] > 0) {
-      pubchem_smiles <- list()
-      smiles <- smiles_df$V1
+    #' this could be a smiles function
+    #' usage eg:
+    #' df2 <- smiles_pubchem(smiles_df)
+    
+    if (dim(smiles_df)[1] > 0){
+      df2 <- smiles_pubchem(smiles_df)
       
-      for (smile in smiles) {
-        encoded <- base64encode(charToRaw(smile))
-        #cid <- get_CID_from_SMILES(encoded)
-        
-        cid <- tryCatch({
-          get_CID_from_SMILES(encoded)
-        }, error = function(e) {
-          #message("Retrying once after error...")
-          Sys.sleep(1)
-          tryCatch(get_CID_from_SMILES(encoded), error = function(e2) {
-            #message("Second attempt failed.")
-            "error"
-          })
-        })
-        
-        pubchem_smiles <- append(pubchem_smiles, list(list(input = smile,'DTXSID' = NULL, 
-                                                           'CID' = cid, 'TITLE' = NULL)))
-        
-      }
-      
-      df2 <- pd$DataFrame(pubchem_smiles)
-      df2 <- df2 %>% group_by(CID) %>% filter(n() == 1) %>% ungroup()
     }
     
     
-    if (dim(cid_df)[1] > 0) {
-      pubchem_cid <- list()
-      cids <- cid_df$V1
+    
+    #' this would be a CID function
+    #' usage example
+    #' df3 <- input_cid_reformating(cid_df)
+    
+    if (dim(cid_df)[1] > 0){
+      df3 <- input_cid_reformating(cid_df)
       
-      for (cid in cids) {
-        title <- check_cid(cid)
-        pubchem_cid <- append(pubchem_cid, list(list(input = cid, 'DTXSID' = NULL, 'CID' = cid,
-                                                     'TITLE' = title)))
-        
-      }
-      
-      df3 <- pd$DataFrame(pubchem_cid)
-      df3 <- df3 %>% group_by(CID) %>% filter(n() == 1) %>% ungroup()
     }
     
     
@@ -341,59 +327,89 @@ function(input, output, session) {
     if (exists("df2")) dfs_list$df2 <- df2
     if (exists("df3")) dfs_list$df3 <- df3
     
+    #' this could also be a function in itself
+    #' usage example
+    #' merged_df <- cid_processing(dfs_list)
     
     df <- bind_rows(dfs_list)
     
+    #' checking for errors which are added during Pubchem API search
     error_rows <- df %>%
       filter(if_any(everything(), ~ . == 'error'))
     
-    df_filt <- filter(df, !(input %in% error_rows$input))
+    
+    
+    if (dim(error_rows)[1] > 0) {
+      df_filt <- filter(df, !(input %in% error_rows$input))
+      
+    }else{
+      df_filt <- df
+    }
+    
+    
+    #' this removes the title column since it gets added during cid check
     df_filt <- subset(df_filt, select = -c(TITLE))
+    
+    
+    #' mutates the cid into a character
+    
     df_filt <- mutate(df_filt, CID = as.character(CID))
     
-    property_df <- get_properties_from_CIDs(paste(df_filt$CID, collapse = ","))
+    
+    # get properties from Pubchem
+    property_df <- tryCatch({
+      get_properties_from_CIDs(paste(df_filt$CID, collapse = ","))
+    }, error = function(e) {
+      #message("Retrying once after error...")
+      Sys.sleep(1)
+      tryCatch(get_properties_from_CIDs(paste(df_filt$CID, collapse = ",")), error = function(e2) {
+        #message("Second attempt failed.")
+        "error"
+      })
+    })
+    
+    #' re-enforces that the CIDs is a character column
+    #' this is to ensure left join works downstream
+    
     property_df <- mutate(property_df, CID = as.character(CID))
     
     
-    missing_names <- (property_df[which(is.na(property_df$Title)),])$CID
+    syn_df <- cid_to_synonym(df_filt)
+    
+    df_filt <- left_join(df_filt, property_df) # only common column here should be CID
+    df_filt <- left_join(df_filt, syn_df) # only common column here is CID
     
     
+    #' now to catch the missing names from titles
+    #' so this checks whether a CID has a title missing
+    #' and collects those missing into a new variable called missing_names
+    missing_names <- (df_filt[which(is.na(df_filt$Title)),])$input
     
-    if(length(missing_names) > 0) {
-      property_df <- property_df[-c(which(is.na(property_df$Title))),]
-    }
-    
-    
-    synonym_list <- list()
-    for (cid in df_filt$CID) {
-      synonyms <- get_synonyms_from_CID(cid)
-      
-      synonym_list <- append(synonym_list, list(list('CID' = cid,'SYNONYMS' = synonyms)))
-      
-    }
-    syn_df <- pd$DataFrame(synonym_list)
-    syn_df <- mutate(syn_df, CID = as.character(CID))
-    
-    #print(df_filt)
-    df_filt <- left_join(df_filt, property_df)
-    df_filt <- left_join(df_filt, syn_df)
-    
+    #' if there are missing_names, it removes the entire row from the datafrmae
+    #' this ensures that downstream, the CIDs that get processed are clean
     
     if(length(missing_names) > 0) {
       df_filt <- df_filt[-c(which(is.na(df_filt$Title))),]
     }
     
+    #' checks the data frame for duplicate CIDs after all the processing
     
-    
-    #print(df_filt)
+    df_filt <- df_filt %>% group_by(CID) %>% filter(n() == 1) %>% ungroup()
     
     merged_df <- df_filt
-    #print(merged_df)
+    
     colnames(merged_df)[grep("Title", colnames(merged_df))] <- "Name"
-    #print(merged_df)
+    
+    
+    #' saves the error and missing CIDs and names
+    #' is it possible to show here the missing input instead
+    #' might be better for user
+    
     
     missing_data(c(error_rows$input, missing_names))
     
+    #' is this needed if I use clean names somwhere else
+    #' check the difference here
     merged_df$Name <- gsub(" ", "_", merged_df$Name)
     merged_df$ROMol <- lapply(merged_df$SMILES, function(smiles) {
       
@@ -434,9 +450,9 @@ function(input, output, session) {
     mixed_input$V1 <- trimws(mixed_input$V1)
     
     
-    duplicate_rows <- mixed_input[duplicated(mixed_input),]
-    duplicate_rows_slot(duplicate_rows)
-    mixed_input <- mixed_input %>% count(V1) %>% filter(n == 1) %>% subset(select = V1)
+    ##duplicate_rows <- mixed_input[duplicated(mixed_input),]
+    #duplicate_rows_slot(duplicate_rows)
+    #mixed_input <- mixed_input %>% count(V1) %>% filter(n == 1) %>% subset(select = V1)
     
     
     show_modal_spinner(text = "Processing example CIDs: Pulling data from PubChem...")
@@ -572,6 +588,16 @@ function(input, output, session) {
   ###############################################################################
   
   observeEvent(input$fingerprint_button, {
+    
+    sendSweetAlert(
+      session,
+      title = "Please check Heatmap tab for results",
+      type = "success",
+      position = "center",
+      timer = 3000,
+      btn_labels = NA
+    )
+    
     req(event2_trigger())
     req(input$fingerprint_type)
     merged_df <- merged_matrix()
@@ -582,7 +608,7 @@ function(input, output, session) {
     # fingerprint generation
     ######################
     
-    print(merged_df$ROMol)
+    
     
     if (input$fingerprint_type == "ECFP4") {
       fpgen <- AllChem$GetMorganGenerator(radius = as.integer(2), fpSize = as.integer(2048))
@@ -613,13 +639,8 @@ function(input, output, session) {
     #print(dim(tanimoto_similarity_df))
     tanimoto_distance <- 1 - tanimoto_similarity_df
     
-    
-    print(merged_df$Name)
-    
     colnames(tanimoto_distance) <- merged_df$Name
     rownames(tanimoto_distance) <- merged_df$Name
-    
-    print("this is where the rowname error was")
     
     tanimoto_matrix(tanimoto_distance)
     
@@ -699,6 +720,16 @@ function(input, output, session) {
   ###############################################################################
   
   observeEvent(input$cluster, {
+    
+    sendSweetAlert(
+      session,
+      title = "Please check Butina cluster and NMDS tab for results",
+      type = "success",
+      position = "center",
+      timer = 3000,
+      btn_labels = NA
+    )
+    
     req(event3_trigger())
     req(input$cutoff)
     fingerprints <- fingerprint_slot()
@@ -957,7 +988,8 @@ function(input, output, session) {
       
       #' saving the second csv of failed IDs
       missing_ID <- file.path(temp_dir, "Failed_ID_from_pubchem.csv")
-      write.csv(missing_data(), missing_ID, row.names = FALSE, col.names = FALSE)
+      write.table(missing_data(), missing_ID, row.names = FALSE, col.names = FALSE,
+                quote = FALSE, sep = ",")
       
       #' Save the cluster PDF
       cluster_pdf <- file.path(temp_dir, paste0("Butina_clusters_", input$fingerprint_type, "_",
@@ -988,7 +1020,8 @@ function(input, output, session) {
       
       #' providing any duplicate rows
       duplicate_path <- file.path(temp_dir, "duplicated_entries.csv")
-      write.csv(duplicate_rows_slot(), duplicate_path, row.names = FALSE)
+      write.table(duplicate_rows_slot(), duplicate_path, row.names = FALSE, col.names = FALSE,
+                quote = FALSE, sep = ",")
       
       #' Providing a README of inputs from user
       if (input$use_example == TRUE) {
@@ -1002,7 +1035,7 @@ function(input, output, session) {
       }
       
       inputs_path <- file.path(temp_dir, "User_provided_inputs.txt")
-      write.table(inputs, inputs_path, sep = "\t", quote = FALSE, row.names = TRUE)
+      write.table(inputs, inputs_path, sep = "\t", quote = FALSE, row.names = TRUE, col.names = FALSE)
       
       #' creating the zip file
       zip(file, c(molecular_properties, missing_ID, cluster_pdf, heatmap_png, NMDS_png, readme_path,

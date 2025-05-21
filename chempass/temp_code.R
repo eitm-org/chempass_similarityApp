@@ -429,6 +429,50 @@ merged_df$ROMol <- lapply(merged_df$SMILES, function(smiles) {
 merged_df <- as.data.frame(merged_df)
 
 
+###############################################################################
+### SMILES not working
+###############################################################################
+
+smile <- gsub("\\s+", "", "CN1CC(=O)N=C1N")
+encoded <- base64encode(charToRaw(smile))
+get_CID_from_SMILES(encoded)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
