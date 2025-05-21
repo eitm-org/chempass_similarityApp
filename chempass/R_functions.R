@@ -300,8 +300,7 @@ dtxsid_pubchem <- function(dtxsid_df){
     }
     
     df1 <- pd$DataFrame(pubchem_dtx)
-    #' this ensures that if one dtxsid gives multiple CIDs from pubchem, only 1 of them is retained
-    df1 <- df1 %>% distinct(CID, .keep_all = TRUE)
+    
   }
   return(df1)
 }
@@ -335,8 +334,7 @@ smiles_pubchem <- function(smiles_df){
     }
     
     df2 <- pd$DataFrame(pubchem_smiles)
-    #' this ensures that if one smiles gives multiple CIDs from pubchem, only 1 of them is retained
-    df2 <- df2 %>% distinct(CID, .keep_all = TRUE)
+    
   }
   
   return(df2)
@@ -372,8 +370,7 @@ input_cid_reformating <- function(cid_df){
     }
     
     df3 <- pd$DataFrame(pubchem_cid)
-    #' if one CID returns multiple titles from pubchem then it keeps only one
-    df3 <- df3 %>% distinct(CID, .keep_all = TRUE)
+    
   }
   
   return(df3)

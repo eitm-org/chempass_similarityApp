@@ -438,11 +438,42 @@ encoded <- base64encode(charToRaw(smile))
 get_CID_from_SMILES(encoded)
 
 
+mixed_input <- read.csv("/Users/kdabke/Downloads/testing_dtx.csv", header = FALSE, stringsAsFactors = FALSE)
+
+mixed_input$DTXSID <- grepl("DTXSID", mixed_input$V1)
+
+numbers_only <- function(x) !grepl("\\D", x)
+mixed_input$CID <- numbers_only(mixed_input$V1)
+
+dtxsid_df <- filter(mixed_input, DTXSID == TRUE)
+dtxsid_df <- subset(dtxsid_df, select = V1)
+
+
+cid_df <- filter(mixed_input, CID == TRUE)
+cid_df <- subset(cid_df, select = V1)
+
+
+smiles_df <- filter(mixed_input, DTXSID == FALSE & CID == FALSE)
+smiles_df <- subset(smiles_df, select = V1)
+
+
+get_cid_from_dtxsid("DTXSID3020006")
 
 
 
-
-
+if (dim(dtxsid_df)[1] > 0) {
+  pubchem_dtx <- list()
+  dtxsids <- dtxsid_df$V1
+  
+  for (dtxsid in dtxsids) {
+    cid <- get_cid_from_dtxsid(dtxsid)
+    
+    pubchem_dtx <- append(pubchem_dtx, list(list(input = dtxsid,'DTXSID' = dtxsid, 'CID' = cid)))
+    
+  }
+  
+  df1 <- pd$DataFrame(pubchem_dtx)
+}
 
 
 

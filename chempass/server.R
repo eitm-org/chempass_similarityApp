@@ -141,7 +141,7 @@ function(input, output, session) {
     if (!(file_ext %in% c("csv", "txt"))) {
       sendSweetAlert(
         session,
-        title = "❌ Unsupported file type",
+        title = "Unsupported file type",
         text = "Please upload a .csv or .txt file only.",
         type = "error",
         #timer = 4000,
@@ -153,7 +153,7 @@ function(input, output, session) {
       
       sendSweetAlert(
         session,
-        title = "✅ Correct file type uploaded.",
+        title = "Correct file type uploaded.",
         type = "success",
         #timer = 4000,
         #showConfirmButton = FALSE
@@ -206,7 +206,7 @@ function(input, output, session) {
       if (ncol(mixed_input) != 1) {
         sendSweetAlert(
           session,
-          title = "⚠️ Incorrect format",
+          title = "Incorrect format",
           text = paste("Expected 1 column, but found ", ncol(mixed_input)),
           type = "error",
           #timer = 4000,
@@ -232,7 +232,7 @@ function(input, output, session) {
         duplicate_rows_slot(duplicate_rows)
         sendSweetAlert(
           session,
-          title = "⚠️ Duplicates Detected",
+          title = "Duplicates Detected",
           text = paste("Found ", nrow(duplicate_rows), " duplicate entries in your data."),
           type = "warning",
           position = "center"  
@@ -241,7 +241,7 @@ function(input, output, session) {
         sendSweetAlert(
           session,
           title = "No duplicates found",
-          text = "✅ Your data looks clean!",
+          text = "Your data looks clean!",
           type = "success",
           position = "center"  
         )
@@ -255,7 +255,7 @@ function(input, output, session) {
     }, error = function(e) {
       sendSweetAlert(
         session,
-        title = "❌ Error reading file",
+        title = "Error reading file",
         text = paste("Please ensure the file is a valid plain-text CSV or TXT.\n\n"),
         type = "error",
         #timer = 6000,
@@ -333,105 +333,132 @@ function(input, output, session) {
     
     df <- bind_rows(dfs_list)
     
+    
+    
     #' checking for errors which are added during Pubchem API search
     error_rows <- df %>%
       filter(if_any(everything(), ~ . == 'error'))
     
-    
-    
-    if (dim(error_rows)[1] > 0) {
-      df_filt <- filter(df, !(input %in% error_rows$input))
-      
-    }else{
-      df_filt <- df
-    }
-    
-    
-    #' this removes the title column since it gets added during cid check
-    df_filt <- subset(df_filt, select = -c(TITLE))
-    
-    
-    #' mutates the cid into a character
-    
-    df_filt <- mutate(df_filt, CID = as.character(CID))
-    
-    
-    # get properties from Pubchem
-    property_df <- tryCatch({
-      get_properties_from_CIDs(paste(df_filt$CID, collapse = ","))
-    }, error = function(e) {
-      #message("Retrying once after error...")
-      Sys.sleep(1)
-      tryCatch(get_properties_from_CIDs(paste(df_filt$CID, collapse = ",")), error = function(e2) {
-        #message("Second attempt failed.")
-        "error"
-      })
-    })
-    
-    #' re-enforces that the CIDs is a character column
-    #' this is to ensure left join works downstream
-    
-    property_df <- mutate(property_df, CID = as.character(CID))
-    
-    
-    syn_df <- cid_to_synonym(df_filt)
-    
-    df_filt <- left_join(df_filt, property_df) # only common column here should be CID
-    df_filt <- left_join(df_filt, syn_df) # only common column here is CID
-    
-    
-    #' now to catch the missing names from titles
-    #' so this checks whether a CID has a title missing
-    #' and collects those missing into a new variable called missing_names
-    missing_names <- (df_filt[which(is.na(df_filt$Title)),])$input
-    
-    #' if there are missing_names, it removes the entire row from the datafrmae
-    #' this ensures that downstream, the CIDs that get processed are clean
-    
-    if(length(missing_names) > 0) {
-      df_filt <- df_filt[-c(which(is.na(df_filt$Title))),]
-    }
-    
-    #' checks the data frame for duplicate CIDs after all the processing
-    
-    df_filt <- df_filt %>% group_by(CID) %>% filter(n() == 1) %>% ungroup()
-    
-    merged_df <- df_filt
-    
-    colnames(merged_df)[grep("Title", colnames(merged_df))] <- "Name"
-    
-    
-    #' saves the error and missing CIDs and names
-    #' is it possible to show here the missing input instead
-    #' might be better for user
-    
-    
-    missing_data(c(error_rows$input, missing_names))
-    
-    #' is this needed if I use clean names somwhere else
-    #' check the difference here
-    merged_df$Name <- gsub(" ", "_", merged_df$Name)
-    merged_df$ROMol <- lapply(merged_df$SMILES, function(smiles) {
-      
-      return(Chem$MolFromSmiles(smiles))
-    })
-    
-    merged_df <- as.data.frame(merged_df)
-    
-    #print(merged_df)
-    
-    
-    
-    
-    merged_matrix(merged_df)
-    mol_struct(merged_df$ROMol)
-    event2_trigger(TRUE)
-    shinyjs::enable("fingerprint_button")
-    shinyjs::enable("fingerprint_type")
-    
-    rm(mixed_input)
-    
     remove_modal_spinner()
+    
+    if (nrow(error_rows) == nrow(df)) {
+      sendSweetAlert(
+        session,
+        title = "Error from Pubchem",
+        text = "No input had matched CIDs, please inspect input list",
+        type = "error",
+        #timer = 6000,
+        #showConfirmButton = FALSE
+      )
+      shinyjs::reset("file_upload")
+      return(NULL)
+    }else{
+      
+      
+      show_modal_spinner(text = "Processing input: Pulling data from PubChem, might take >1 min. for large lists of compounds...")
+      
+      print("this process keeps running")
+      
+      if (dim(error_rows)[1] > 0) {
+        df_filt <- filter(df, !(input %in% error_rows$input))
+        
+      }else{
+        df_filt <- df}
+      
+      
+      #' this removes the title column since it gets added during cid check
+      df_filt <- subset(df_filt, select = -c(TITLE))
+      
+      
+      #' mutates the cid into a character
+      
+      df_filt <- mutate(df_filt, CID = as.character(CID))
+      
+      df_filt <- df_filt %>% distinct(CID, .keep_all = TRUE)
+      
+      # get properties from Pubchem
+      property_df <- tryCatch({
+        get_properties_from_CIDs(paste(df_filt$CID, collapse = ","))
+      }, error = function(e) {
+        #message("Retrying once after error...")
+        Sys.sleep(1)
+        tryCatch(get_properties_from_CIDs(paste(df_filt$CID, collapse = ",")), error = function(e2) {
+          #message("Second attempt failed.")
+          "error"
+        })
+      })
+      
+      #' re-enforces that the CIDs is a character column
+      #' this is to ensure left join works downstream
+      
+      property_df <- mutate(property_df, CID = as.character(CID))
+      
+      
+      syn_df <- cid_to_synonym(df_filt)
+      
+      df_filt <- left_join(df_filt, property_df) # only common column here should be CID
+      df_filt <- left_join(df_filt, syn_df) # only common column here is CID
+      
+      
+      #' now to catch the missing names from titles
+      #' so this checks whether a CID has a title missing
+      #' and collects those missing into a new variable called missing_names
+      missing_names <- (df_filt[which(is.na(df_filt$Title)),])$input
+      
+      #' if there are missing_names, it removes the entire row from the datafrmae
+      #' this ensures that downstream, the CIDs that get processed are clean
+      
+      if(length(missing_names) > 0) {
+        df_filt <- df_filt[-c(which(is.na(df_filt$Title))),]
+      }
+      
+      #' checks the data frame for duplicate CIDs after all the processing
+      
+      
+      df_filt <- df_filt %>% distinct(CID, .keep_all = TRUE)
+      
+      merged_df <- df_filt
+      
+      colnames(merged_df)[grep("Title", colnames(merged_df))] <- "Name"
+      
+      
+      #' saves the error and missing CIDs and names
+      #' is it possible to show here the missing input instead
+      #' might be better for user
+      
+      
+      missing_data(c(error_rows$input, missing_names))
+      
+      #' is this needed if I use clean names somwhere else
+      #' check the difference here
+      merged_df$Name <- gsub(" ", "_", merged_df$Name)
+      merged_df$ROMol <- lapply(merged_df$SMILES, function(smiles) {
+        
+        return(Chem$MolFromSmiles(smiles))
+      })
+      
+      merged_df <- as.data.frame(merged_df)
+      
+      #print(merged_df)
+      
+      
+      
+      
+      merged_matrix(merged_df)
+      mol_struct(merged_df$ROMol)
+      event2_trigger(TRUE)
+      shinyjs::enable("fingerprint_button")
+      shinyjs::enable("fingerprint_type")
+      
+      rm(mixed_input)
+      
+      remove_modal_spinner()
+      
+      
+      
+    }
+    
+    
     
     
     
