@@ -68,6 +68,8 @@ function(input, output, session) {
   duplicate_rows_slot <- reactiveVal(NULL)
   toggle <- reactiveVal(NULL)
   metaMDS_results.points_slot <- reactiveVal(NULL)
+  NMDS_cannot_be_plotted <- reactiveVal(FALSE)
+  heatmap_cannot_be_plotted <- reactiveVal(FALSE)
   
   #' at the start of the app, all buttons are disabled along with drop down menus
   observe({
@@ -102,6 +104,8 @@ function(input, output, session) {
       heatmap_slot(NULL)
       clusters_slot(NULL)
       NMDS_slot(NULL)
+      NMDS_cannot_be_plotted <- reactiveVal(FALSE)
+      heatmap_cannot_be_plotted <- reactiveVal(FALSE)
       
     }else{
       #' this resets the file upload 
@@ -122,6 +126,8 @@ function(input, output, session) {
       heatmap_slot(NULL)
       clusters_slot(NULL)
       NMDS_slot(NULL)
+      NMDS_cannot_be_plotted <- reactiveVal(FALSE)
+      heatmap_cannot_be_plotted <- reactiveVal(FALSE)
       
     }
     
@@ -177,6 +183,8 @@ function(input, output, session) {
       heatmap_slot(NULL)
       clusters_slot(NULL)
       NMDS_slot(NULL)
+      NMDS_cannot_be_plotted <- reactiveVal(FALSE)
+      heatmap_cannot_be_plotted <- reactiveVal(FALSE)
     }
     
     
@@ -341,6 +349,18 @@ function(input, output, session) {
     
     remove_modal_spinner()
     
+    
+    if (nrow(error_rows) > 0) {
+      sendSweetAlert(
+        session,
+        title = "Errors found:",
+        text = paste0("Found ", nrow(error_rows), " rows with no matches in Pubchem."),
+        type = "warning",
+        timer = 3000,
+        #showConfirmButton = FALSE
+      )
+    }
+    
     if (nrow(error_rows) == nrow(df)) {
       sendSweetAlert(
         session,
@@ -364,6 +384,7 @@ function(input, output, session) {
         
       }else{
         df_filt <- df}
+      
       
       
       #' this removes the title column since it gets added during cid check
@@ -463,6 +484,31 @@ function(input, output, session) {
     
     
   }) ## ending second observation here = for user provided input
+  
+  ###############################################################################
+  ### input file being saved to a directory called user_uploads
+  ###############################################################################
+  
+  observeEvent(input$process_file, {
+    req(reactive_df())
+    
+    # Generate a unique filename using UUID and timestamp
+    session_id <- session$token
+    original_name <- input$file_upload$name
+    timestamp_fileExt <- format(Sys.time(), "%Y%m%d-%H%M%S")
+    new_filename <- paste0("upload_", session_id, "_", timestamp_fileExt, "_", original_name)
+    
+    # Define destination path (make sure this directory exists and is writable)
+    dest_dir <- "user_uploads"
+    if (!dir.exists(dest_dir)) dir.create(dest_dir)
+    dest_path <- file.path(dest_dir, new_filename)
+    
+    # Copy the uploaded file from temp to permanent storage
+    file.copy(from = input$file_upload$datapath, to = dest_path)
+    
+    
+  })
+  
   
   ###############################################################################
   ### input example data processing - connecting with PubChem
@@ -682,30 +728,40 @@ function(input, output, session) {
     
     par(mfrow = c(1, 2), mar = c(5, 4, 4, 2) + 0.1)  
     
-    hmap <- Heatmap(
-      as.matrix(tanimoto_distance),
-      show_row_names = T,
-      show_column_names = F,
-      #row_names_gp = gpar(col = ifelse(rownames(distance_matrix) %in% (filter(merged_data, type == "new"))$`chemical names`, "blue", "black")),
-      cluster_rows = T,
-      cluster_columns = T,
-      show_column_dend = T,
-      show_row_dend = T,
-      row_dend_reorder = T,
-      column_dend_reorder = T,
-      clustering_method_rows = "ward.D2", #top_annotation = colAnn,
-      clustering_method_columns = "ward.D2",col = ylgnbu_col,
-      width = unit(150, "mm"),border = TRUE,
-      heatmap_legend_param = list(
-        title = "Tanimoto Distance",
-        title_position = "leftcenter-rot",
-        labels_gp = gpar(fontsize = 12),
-        title_gp = gpar(fontsize = 12)),
-      column_gap=unit(1, "mm"))
+    print(nrow(tanimoto_distance))
     
-    #ht = draw(hmap, heatmap_legend_side="left", annotation_legend_side="bottom")
     
-    heatmap_slot(hmap)
+    if (nrow(tanimoto_distance) == 1) {
+      heatmap_cannot_be_plotted(TRUE)
+      heatmap_slot(TRUE)
+    }else{
+      hmap <- Heatmap(
+        as.matrix(tanimoto_distance),
+        show_row_names = T,
+        show_column_names = F,
+        #row_names_gp = gpar(col = ifelse(rownames(distance_matrix) %in% (filter(merged_data, type == "new"))$`chemical names`, "blue", "black")),
+        cluster_rows = T,
+        cluster_columns = T,
+        show_column_dend = T,
+        show_row_dend = T,
+        row_dend_reorder = T,
+        column_dend_reorder = T,
+        clustering_method_rows = "ward.D2", #top_annotation = colAnn,
+        clustering_method_columns = "ward.D2",col = ylgnbu_col,
+        width = unit(150, "mm"),border = TRUE,
+        heatmap_legend_param = list(
+          title = "Tanimoto Distance",
+          title_position = "leftcenter-rot",
+          labels_gp = gpar(fontsize = 12),
+          title_gp = gpar(fontsize = 12)),
+        column_gap=unit(1, "mm"))
+      
+      #ht = draw(hmap, heatmap_legend_side="left", annotation_legend_side="bottom")
+      
+      heatmap_slot(hmap)
+      heatmap_cannot_be_plotted(FALSE)
+    }
+    
     
     
     
@@ -724,9 +780,12 @@ function(input, output, session) {
   
   output$imageOutput1 <- renderPlot({
     
-    req(heatmap_slot())
     
+    
+    req(heatmap_slot())
     draw(heatmap_slot(), heatmap_legend_side="left", annotation_legend_side="bottom")
+    
+    
     
   }, res = 100)
   
@@ -737,7 +796,13 @@ function(input, output, session) {
         style = "text-align: center; padding-top: 50px;",
         h4("Heatmap will be generated after Fingerprint generation...")
       )
-    } else {
+    } else if(isTRUE(heatmap_cannot_be_plotted())){
+      div(
+        style = "text-align: center; padding-top: 50px;",
+        h4("Heatmap cannot be plotted with a single data point...")
+      )
+      
+    }else {
       plotOutput("imageOutput1", width = 1500, height = 1500)
     }
   })
@@ -817,58 +882,121 @@ function(input, output, session) {
     # NMDS analysis
     ######################
     
-    set.seed(4242)
-    metaMDS_results <- metaMDS(comm = distance_matrix,
-                               autotransform = FALSE,
-                               engine = "monoMDS",
-                               k = 3,
-                               weakties = FALSE,
-                               model = "global",
-                               maxit = 400,
-                               try = 40,
-                               trymax = 100)
+    if (nrow(distance_matrix) == 1) {
+      NMDS_cannot_be_plotted(TRUE)
+      NMDS_slot(TRUE)
+      NMD_plotting_done(TRUE)
+    }else if (nrow(distance_matrix) <= 3 & nrow(distance_matrix) > 1){
+      set.seed(4242)
+      metaMDS_results <- metaMDS(comm = distance_matrix,
+                                 autotransform = FALSE,
+                                 engine = "monoMDS",
+                                 k = 2,
+                                 weakties = FALSE,
+                                 model = "global",
+                                 maxit = 400,
+                                 try = 40,
+                                 trymax = 100)
+      
+      metaMDS_results.points <- data.frame(metaMDS_results$points)
+      
+      
+      metaMDS_results.points$cluster_ID <- merged_df$cluster_membership
+      
+      metaMDS_results.points$Name <- merged_df$Name
+      #print(head(metaMDS_results.points))
+      metaMDS_results.points <- metaMDS_results.points %>% mutate(cluster_ID = as.character(cluster_ID))
+      
+      metaMDS_results.points <- metaMDS_results.points[order(metaMDS_results.points$cluster_ID, method = "shell"),]
+      
+      metaMDS_results.points$cluster_ID <- factor(metaMDS_results.points$cluster_ID,
+                                                  levels = as.character(1:length(clusters)), ordered = TRUE)
+      
+      clustered_mol <- metaMDS_results.points %>% group_by(cluster_ID) %>% 
+        summarize(cluster_count = sum(cluster_ID >= 1, na.rm = TRUE)) %>% 
+        filter(cluster_count > 1)
+      
+      
+      metaMDS_results.points$cluster_ID_toPlot <- ifelse(metaMDS_results.points$cluster_ID %in% clustered_mol$cluster_ID, 
+                                                         "plot", "do not plot")
+      
+      ######################
+      # NMDS plotting- ggplot
+      ######################
+      
+      plot <- metaMDS_results.points %>% 
+        ggplot(., aes(x = MDS1, y = MDS2)) +
+        geom_point(size = 2, col = "grey") +
+        geom_point(data = filter(metaMDS_results.points, cluster_ID_toPlot == "plot"), aes(x = MDS1, y = MDS2, col = cluster_ID), size = 4) +
+        #scale_color_manual(values = c('#7fc97f','#beaed4','#fdc086','#ffff99','#386cb0','#f0027f','#bf5b17','#666666')) +
+        theme_classic() +
+        theme(text = element_text(size = 15)) +
+        labs(title = "NMDS Plot from Distance Matrix",
+             x = "MDS1",
+             y = "MDS2")
+      
+      NMDS_slot(plot)
+      
+      NMD_plotting_done(TRUE)
+      metaMDS_results.points_slot(metaMDS_results.points)
+      
+      
+    }else{
+      set.seed(4242)
+      metaMDS_results <- metaMDS(comm = distance_matrix,
+                                 autotransform = FALSE,
+                                 engine = "monoMDS",
+                                 k = 3,
+                                 weakties = FALSE,
+                                 model = "global",
+                                 maxit = 400,
+                                 try = 40,
+                                 trymax = 100)
+      metaMDS_results.points <- data.frame(metaMDS_results$points)
+      
+      
+      metaMDS_results.points$cluster_ID <- merged_df$cluster_membership
+      
+      metaMDS_results.points$Name <- merged_df$Name
+      #print(head(metaMDS_results.points))
+      metaMDS_results.points <- metaMDS_results.points %>% mutate(cluster_ID = as.character(cluster_ID))
+      
+      metaMDS_results.points <- metaMDS_results.points[order(metaMDS_results.points$cluster_ID, method = "shell"),]
+      
+      metaMDS_results.points$cluster_ID <- factor(metaMDS_results.points$cluster_ID,
+                                                  levels = as.character(1:length(clusters)), ordered = TRUE)
+      
+      clustered_mol <- metaMDS_results.points %>% group_by(cluster_ID) %>% 
+        summarize(cluster_count = sum(cluster_ID >= 1, na.rm = TRUE)) %>% 
+        filter(cluster_count > 1)
+      
+      
+      metaMDS_results.points$cluster_ID_toPlot <- ifelse(metaMDS_results.points$cluster_ID %in% clustered_mol$cluster_ID, 
+                                                         "plot", "do not plot")
+      
+      ######################
+      # NMDS plotting- ggplot
+      ######################
+      
+      plot <- metaMDS_results.points %>% 
+        ggplot(., aes(x = MDS1, y = MDS2)) +
+        geom_point(size = 2, col = "grey") +
+        geom_point(data = filter(metaMDS_results.points, cluster_ID_toPlot == "plot"), aes(x = MDS1, y = MDS2, col = cluster_ID), size = 4) +
+        #scale_color_manual(values = c('#7fc97f','#beaed4','#fdc086','#ffff99','#386cb0','#f0027f','#bf5b17','#666666')) +
+        theme_classic() +
+        theme(text = element_text(size = 15)) +
+        labs(title = "NMDS Plot from Distance Matrix",
+             x = "MDS1",
+             y = "MDS2")
+      
+      NMDS_slot(plot)
+      
+      NMD_plotting_done(TRUE)
+      metaMDS_results.points_slot(metaMDS_results.points)
+      
+    }
     
-    metaMDS_results.points <- data.frame(metaMDS_results$points)
     
-    
-    metaMDS_results.points$cluster_ID <- merged_df$cluster_membership
-    
-    metaMDS_results.points$Name <- merged_df$Name
-    #print(head(metaMDS_results.points))
-    metaMDS_results.points <- metaMDS_results.points %>% mutate(cluster_ID = as.character(cluster_ID))
-    
-    metaMDS_results.points <- metaMDS_results.points[order(metaMDS_results.points$cluster_ID, method = "shell"),]
-    
-    metaMDS_results.points$cluster_ID <- factor(metaMDS_results.points$cluster_ID,
-                                                levels = as.character(1:length(clusters)), ordered = TRUE)
-    
-    clustered_mol <- metaMDS_results.points %>% group_by(cluster_ID) %>% 
-      summarize(cluster_count = sum(cluster_ID >= 1, na.rm = TRUE)) %>% 
-      filter(cluster_count > 1)
-    
-    
-    metaMDS_results.points$cluster_ID_toPlot <- ifelse(metaMDS_results.points$cluster_ID %in% clustered_mol$cluster_ID, 
-                                                       "plot", "do not plot")
-    
-    ######################
-    # NMDS plotting- ggplot
-    ######################
-    
-    plot <- metaMDS_results.points %>% 
-      ggplot(., aes(x = MDS1, y = MDS3)) +
-      geom_point(size = 2, col = "grey") +
-      geom_point(data = filter(metaMDS_results.points, cluster_ID_toPlot == "plot"), aes(x = MDS1, y = MDS3, col = cluster_ID), size = 4) +
-      #scale_color_manual(values = c('#7fc97f','#beaed4','#fdc086','#ffff99','#386cb0','#f0027f','#bf5b17','#666666')) +
-      theme_classic() +
-      theme(text = element_text(size = 15)) +
-      labs(title = "NMDS Plot from Distance Matrix",
-           x = "MDS1",
-           y = "MDS2")
-    
-    NMDS_slot(plot)
-    
-    NMD_plotting_done(TRUE)
-    metaMDS_results.points_slot(metaMDS_results.points)
     
   }) # ending the fourth observation of cluster cutoff
   
@@ -891,9 +1019,9 @@ function(input, output, session) {
     ######################
     
     g <- metaMDS_results.points %>% 
-      ggplot(., aes(x = MDS1, y = MDS3, text = Name)) +
+      ggplot(., aes(x = MDS1, y = MDS2, text = Name)) +
       geom_point(size = 2, col = "grey") +
-      geom_point(data = filter(metaMDS_results.points, cluster_ID_toPlot == "plot"), aes(x = MDS1, y = MDS3, col = cluster_ID), size = 4) +
+      geom_point(data = filter(metaMDS_results.points, cluster_ID_toPlot == "plot"), aes(x = MDS1, y = MDS2, col = cluster_ID), size = 4) +
       #scale_color_manual(values = c('#7fc97f','#beaed4','#fdc086','#ffff99','#386cb0','#f0027f','#bf5b17','#666666')) +
       theme_classic() +
       theme(text = element_text(size = 15)) +
@@ -912,9 +1040,15 @@ function(input, output, session) {
         style = "text-align: center; padding-top: 50px;",
         h4("NMDS plot will be generated after clustering is performed...")
       )
-    } else {
+    }else if (NMDS_cannot_be_plotted()) {
+      div(
+        style = "text-align: center; padding-top: 50px;",
+        h4("NMDS plot cannot be generated, data points N = 1...")
+      )
+      
+    }else {
       plotlyOutput("imageOutput3", width = 800, height = 800)
-    }
+    } 
     
     
   })
@@ -1029,16 +1163,34 @@ function(input, output, session) {
       }
       
       #' saving the nmds plots
+      #' 
       NMDS_png <- file.path(temp_dir, "NMDS_plot.png")
-      png(NMDS_png, units = "in", res = 300, width = 8, height = 8)
-      plot(NMDS_slot())
-      dev.off()
+      if (NMDS_cannot_be_plotted()) {
+        print("not really making an nmds plot")
+      } else{
+        
+        png(NMDS_png, units = "in", res = 300, width = 8, height = 8)
+        plot(NMDS_slot())
+        dev.off()
+        
+      }
+      
+      
       
       #' Save the heatmap png
       heatmap_png <- file.path(temp_dir, "heatmap.png")
-      png(heatmap_png, units = "in", res = 300, width = 20, height = 12)
-      draw(heatmap_slot(), heatmap_legend_side="left", annotation_legend_side="bottom")
-      dev.off()
+      
+      if (heatmap_cannot_be_plotted()) {
+        print("not really making a heatmap")
+      }else{
+        png(heatmap_png, units = "in", res = 300, width = 20, height = 12)
+        draw(heatmap_slot(), heatmap_legend_side="left", annotation_legend_side="bottom")
+        dev.off()
+      }
+      
+      
+      
+      
       
       #' Providing a README of molecular properties
       readme_path <- file.path(temp_dir, "README.txt")
