@@ -48,4 +48,4 @@ jobs:
           docker pull ghcr.io/eitm-org/chempass_similarity:latest && \
           (docker stop chempass_similarity || true) && \
           (docker rm chempass_similarity || true) && \
-          docker run -d --name chempass_similarity -p 3838:3838 ghcr.io/eitm-org/chempass_similarity:latest
+          docker run -d --name chempass_similarity -p 3838:3838 -v /home/kruttika/chempass/user_uploads:/root/chempass/user_uploads ghcr.io/eitm-org/chempass_similarity:latest
