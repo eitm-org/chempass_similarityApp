@@ -160,8 +160,13 @@ function(input, output, session) {
       sendSweetAlert(
         session,
         title = "Correct file type uploaded.",
+        text = tags$span(
+          "Please click the", tags$b("Process This File"), "button to proceed"
+        ),
+        html = TRUE,
+        #text = "Please click the Process This File button to proceed",
         type = "success",
-        #timer = 4000,
+        #timer = 3000,
         #showConfirmButton = FALSE
       )
       
@@ -241,17 +246,21 @@ function(input, output, session) {
         sendSweetAlert(
           session,
           title = "Duplicates Detected",
-          text = paste("Found ", nrow(duplicate_rows), " duplicate entries in your data."),
+          text = paste("Found ", nrow(duplicate_rows), " duplicate entries in your data. Processing will continue."),
           type = "warning",
-          position = "center"  
+          position = "center",
+          timer = 3000,
+          btn_labels = NA
         )
       } else {
         sendSweetAlert(
           session,
           title = "No duplicates found",
-          text = "Your data looks clean!",
+          text = "Your data looks clean! Processing will continue.",
           type = "success",
-          position = "center"  
+          position = "center",
+          timer = 3000,
+          btn_labels = NA
         )
         #shinyjs::reset("file_upload")
       }
@@ -354,10 +363,10 @@ function(input, output, session) {
       sendSweetAlert(
         session,
         title = "Errors found:",
-        text = paste0("Found ", nrow(error_rows), " rows with no matches in Pubchem."),
+        text = paste0("Found ", nrow(error_rows), " rows with no matches in Pubchem. Processing will continue."),
         type = "warning",
         timer = 3000,
-        #showConfirmButton = FALSE
+        btn_labels = NA
       )
     }
     
@@ -365,7 +374,7 @@ function(input, output, session) {
       sendSweetAlert(
         session,
         title = "Error from Pubchem",
-        text = "No input had matched CIDs, please inspect input list",
+        text = "Input had no matched CIDs, please inspect input list",
         type = "error",
         #timer = 6000,
         #showConfirmButton = FALSE
@@ -377,7 +386,7 @@ function(input, output, session) {
       
       show_modal_spinner(text = "Processing input: Pulling data from PubChem, might take >1 min. for large lists of compounds...")
       
-      print("this process keeps running")
+      #print("this process keeps running")
       
       if (dim(error_rows)[1] > 0) {
         df_filt <- filter(df, !(input %in% error_rows$input))
@@ -484,30 +493,6 @@ function(input, output, session) {
     
     
   }) ## ending second observation here = for user provided input
-  
-  ###############################################################################
-  ### input file being saved to a directory called user_uploads
-  ###############################################################################
-  
-  observeEvent(input$process_file, {
-    req(reactive_df())
-    
-    # Generate a unique filename using UUID and timestamp
-    session_id <- session$token
-    original_name <- input$file_upload$name
-    timestamp_fileExt <- format(Sys.time(), "%Y%m%d-%H%M%S")
-    new_filename <- paste0("upload_", session_id, "_", timestamp_fileExt, "_", original_name)
-    
-    # Define destination path (make sure this directory exists and is writable)
-    dest_dir <- "user_uploads"
-    if (!dir.exists(dest_dir)) dir.create(dest_dir)
-    dest_path <- file.path(dest_dir, new_filename)
-    
-    # Copy the uploaded file from temp to permanent storage
-    file.copy(from = input$file_upload$datapath, to = dest_path)
-    
-    
-  })
   
   
   ###############################################################################
@@ -1169,7 +1154,7 @@ function(input, output, session) {
         print("not really making an nmds plot")
       } else{
         
-        png(NMDS_png, units = "in", res = 300, width = 8, height = 8)
+        png(NMDS_png, units = "in", res = 600, width = 8, height = 8)
         plot(NMDS_slot())
         dev.off()
         
@@ -1183,7 +1168,7 @@ function(input, output, session) {
       if (heatmap_cannot_be_plotted()) {
         print("not really making a heatmap")
       }else{
-        png(heatmap_png, units = "in", res = 300, width = 20, height = 12)
+        png(heatmap_png, units = "in", res = 600, width = 20, height = 12)
         draw(heatmap_slot(), heatmap_legend_side="left", annotation_legend_side="bottom")
         dev.off()
       }

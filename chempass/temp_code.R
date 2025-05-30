@@ -767,49 +767,362 @@ metaMDS_results.points %>%
 library(shiny)
 library(uuid)
 
-ui <- fluidPage(
-  fileInput("file_upload", "Upload a file"),
-  textOutput("upload_status")
-)
 
-server <- function(input, output, session) {
+
+# in server: 
+
+###############################################################################
+### input file being saved to a directory called user_uploads
+###############################################################################
+
+observeEvent(input$process_file, {
+  req(reactive_df())
   
-  observeEvent(input$file_upload, {
-    req(input$file_upload)
+  # Generate a unique filename using UUID and timestamp
+  session_id <- session$token
+  original_name <- input$file_upload$name
+  timestamp_fileExt <- format(Sys.time(), "%Y%m%d-%H%M%S")
+  new_filename <- paste0("upload_", session_id, "_", timestamp_fileExt, "_", original_name)
+  
+  # Define destination path (make sure this directory exists and is writable)
+  dest_dir <- "user_uploads"
+  if (!dir.exists(dest_dir)) dir.create(dest_dir)
+  dest_path <- file.path(dest_dir, new_filename)
+  
+  # Copy the uploaded file from temp to permanent storage
+  file.copy(from = input$file_upload$datapath, to = dest_path)
+  
+  
+})
+
+
+######################################################################
+# improving image quality of output pdf
+######################################################################
+mixed_input <- read.csv("/Users/kdabke/Documents/GitHub/CHEMPASS_Rshiny/test_files/DTXSID_test2.csv",
+                        header = FALSE, stringsAsFactors = FALSE)
+
+mixed_input$V1 <- trimws(mixed_input$V1)
+
+
+duplicate_rows <- mixed_input[duplicated(mixed_input),]
+mixed_input <- mixed_input %>% count(V1) %>% filter(n == 1) %>% subset(select = V1)
+
+
+
+numbers_only <- function(x) !grepl("\\D", x)
+
+mixed_input$DTXSID <- grepl("DTXSID", mixed_input$V1)
+
+mixed_input$CID <- numbers_only(mixed_input$V1)
+
+dtxsid_df <- filter(mixed_input, DTXSID == TRUE)
+dtxsid_df <- subset(dtxsid_df, select = V1)
+
+
+cid_df <- filter(mixed_input, CID == TRUE)
+cid_df <- subset(cid_df, select = V1)
+
+
+smiles_df <- filter(mixed_input, DTXSID == FALSE & CID == FALSE)
+smiles_df <- subset(smiles_df, select = V1)
+
+
+if (dim(dtxsid_df)[1] > 0) {
+  pubchem_dtx <- list()
+  dtxsids <- dtxsid_df$V1
+  
+  for (dtxsid in dtxsids) {
+    cid <- get_cid_from_dtxsid(dtxsid)
     
-    # Generate a unique filename using UUID and timestamp
-    session_id <- session$token
-    original_name <- input$file_upload$name
-    new_filename <- paste0("upload_", session_id, "_", original_name)
+    pubchem_dtx <- append(pubchem_dtx, list(list(input = dtxsid,'DTXSID' = dtxsid, 'CID' = cid)))
     
-    # Define destination path (make sure this directory exists and is writable)
-    dest_dir <- "user_uploads"
-    if (!dir.exists(dest_dir)) dir.create(dest_dir)
-    dest_path <- file.path(dest_dir, new_filename)
-    
-    # Copy the uploaded file from temp to permanent storage
-    file.copy(from = input$file_upload$datapath, to = dest_path)
-    
-    
-  })
+  }
+  
+  df1 <- pd$DataFrame(pubchem_dtx)
 }
 
-shinyApp(ui, server)
+
+
+if (dim(smiles_df)[1] > 0) {
+  pubchem_smiles <- list()
+  smiles <- smiles_df$V1
+  
+  for (smile in smiles) {
+    encoded <- base64encode(charToRaw(smile))
+    cid <- get_CID_from_SMILES(encoded)
+    
+    pubchem_smiles <- append(pubchem_smiles, list(list(input = smile,'DTXSID' = NULL, 'CID' = cid)))
+    
+  }
+  
+  df2 <- pd$DataFrame(pubchem_smiles)
+}
+
+if (dim(cid_df)[1] > 0) {
+  pubchem_cid <- list()
+  cids <- cid_df$V1
+  
+  for (cid in cids) {
+    
+    pubchem_cid <- append(pubchem_cid, list(list(input = cid, 'DTXSID' = NULL, 'CID' = cid)))
+    
+  }
+  
+  df3 <- pd$DataFrame(pubchem_cid)
+}
+
+
+dfs_list <- list()
+if (exists("df1")) dfs_list$df1 <- df1
+if (exists("df2")) dfs_list$df2 <- df2
+if (exists("df3")) dfs_list$df3 <- df3
+
+
+df <- bind_rows(dfs_list)
+
+error_rows <- df %>%
+  filter(if_any(everything(), ~ . == 'error'))
+
+df_filt <- filter(df, !(input %in% error_rows$input))
+df_filt <- mutate(df_filt, CID = as.character(CID))
+
+property_df <- get_properties_from_CIDs(paste(df_filt$CID, collapse = ","))
+property_df <- mutate(property_df, CID = as.character(CID))
+
+synonym_list <- list()
+for (cid in df_filt$CID) {
+  synonyms <- get_synonyms_from_CID(cid)
+  
+  synonym_list <- append(synonym_list, list(list('CID' = cid,'SYNONYMS' = synonyms)))
+  
+}
+syn_df <- pd$DataFrame(synonym_list)
+syn_df <- mutate(syn_df, CID = as.character(CID))
+
+
+df_filt <- left_join(df_filt, property_df)
+df_filt <- left_join(df_filt, syn_df)
 
 
 
+merged_df <- df_filt
+#print(merged_df)
+colnames(merged_df)[grep("Title", colnames(merged_df))] <- "Name"
+#print(merged_df)
+
+missing_data(error_rows$input)
+merged_df$Name <- gsub(" ", "_", merged_df$Name)
+merged_df$ROMol <- lapply(merged_df$SMILES, function(smiles) {
+  
+  return(Chem$MolFromSmiles(smiles))
+})
+
+merged_df <- as.data.frame(merged_df)
+
+merged_df <- merged_df[-7,]
+
+
+invgen = AllChem$GetMorganFeatureAtomInvGen()
+ffpgen = AllChem$GetMorganGenerator(radius=as.integer(2), atomInvariantsGenerator=invgen)
+
+fingerprints <- list()
+for (i in 1:nrow(merged_df)){ 
+  mol <- merged_df$ROMol[i]
+  fingerprints[[i]] <- ffpgen$GetFingerprint(mol[[1]])
+  
+}
+
+tanimoto_similarity_df = tanimoto_distance_matrix2(fingerprints)
+tanimoto_similarity_df <- as.data.frame(tanimoto_similarity_df)
+#print(dim(tanimoto_similarity_df))
+tanimoto_distance <- 1 - tanimoto_similarity_df
+
+colnames(tanimoto_distance) <- merged_df$Name
+rownames(tanimoto_distance) <- merged_df$Name
+clusters = cluster_fingerprints(fingerprints, cutoff=0.3)
+merged_df$cluster_membership <- 1000
+
+for (i in seq_along(clusters)) {
+  cluster_indices <- clusters[[i]]
+  cluster_mols <- merged_df$Name[unlist(cluster_indices) + 1]
+  merged_df$cluster_membership <- ifelse(merged_df$Name %in% cluster_mols, i, merged_df$cluster_membership)
+}
+
+save_clusters_to_pdf <- function(clusters, list_mol, merged_df, output_filename = "clusters.pdf") {
+  
+  grDevices::pdf(output_filename, width = 12, height = 8)
+  
+  #' Iterate through the clusters
+  #' This step depends on clusters generated from fingerprints and user provided cutoffs
+  for (i in seq_along(clusters)) {
+    cluster_indices <- clusters[[i]]
+    
+    #' Skip empty clusters
+    if (length(cluster_indices) == 0) {
+      next
+    }
+    
+    #' Get molecules for this cluster (adjust index by +1 for R) since the cluster indices are generated with python
+    #' where numbering starts with 0
+    cluster_mols <- list_mol[unlist(cluster_indices) + 1]
+    
+    #' Configure drawing options
+    opts <- Draw$MolDrawOptions()
+    opts$legendFraction <- 0.2  # Increase space for legend
+    opts$legendFontSize <- 40L  # Adjust font size as needed
+    #opts$aspectRatio <- 1.0
+    #opts$coordScale <- 1.0
+    
+    #' Special handling for single molecule in cluster
+    #' Had to do this because it was cutting off text for singletons
+    if (length(cluster_mols) == 1) {
+      
+      #' Get chemical names for these molecules
+      chemical_names <- merged_df$Name[unlist(cluster_indices) + 1]
+      #print(paste0("processing:", chemical_names))
+      #' Start plotting image
+      plot.new()
+      title(main = paste("Cluster", i))
+      
+      
+      img <- Draw$MolToImage(cluster_mols[[1]], 
+                             size = list(1000L, 1000L),
+                             legend=chemical_names[1],
+                             options=opts)
+      
+      
+      temp_file <- tempfile(fileext = ".png")
+      img$save(temp_file)
+      plot_img <- png::readPNG(temp_file)
+      graphics::rasterImage(plot_img, 0, 0.1, 1, 1)
+      file.remove(temp_file)
+    } else {
+      #' Create the grid image for multiple molecules
+      #' So this should capture all molecules that are clustered based on user provided cutoff
+      merged_df$Name <- sanitize_names(merged_df$Name)
+      
+      cluster_ind_fingerprints <- list()
+      fpgen <- AllChem$GetMorganGenerator(radius = as.integer(2), fpSize = as.integer(2048))
+      for (j in 1:length(cluster_indices)){ 
+        cluster_ind_fingerprints[[j]] <- fpgen$GetFingerprint(cluster_mols[[j]])
+        
+      }
+      
+      tanimoto_similarity_df = tanimoto_distance_matrix2(cluster_ind_fingerprints)
+      tanimoto_similarity_df <- as.data.frame(tanimoto_similarity_df)
+      tanimoto_similarity_df <- round(tanimoto_similarity_df, 2)
+      
+      
+      colnames(tanimoto_similarity_df) <- merged_df$Name[unlist(cluster_indices) + 1]
+      tanimoto_similarity_df$Name <- merged_df$Name[unlist(cluster_indices) + 1]
+      
+      cluster_center <- merged_df$Name[cluster_indices[[1]] + 1]
+      
+      
+      
+      temp <- tanimoto_similarity_df %>%
+        select(contains("Name"), all_of(cluster_center))
+      
+      temp <-temp %>%
+        arrange(desc(.data[[cluster_center]]))
+      
+      temp <- left_join(temp, merged_df)
+      
+      
+      #' Get chemical names for these molecules and add the similarity scores to cluster center on a new line
+      
+      
+      final_name <- paste(temp$Name, temp[[cluster_center]], sep = " \n")
+      
+      #print(temp)
+      #print(cluster_center)
+      #print(final_name)
+      
+      img <- Draw$MolsToGridImage(temp$ROMol, 
+                                  subImgSize = list(600L, 600L),
+                                  drawOptions = opts,
+                                  legends = final_name)
+      
+      
+      temp_file <- tempfile(fileext = ".png")
+      img$save(temp_file)
+      plot_img <- png::readPNG(temp_file)
+      
+      
+      plot.new()
+      title(main = paste("Cluster", i))
+      graphics::rasterImage(plot_img, 0, 0.1, 1, 1)
+      file.remove(temp_file)
+    }
+  }
+  
+  
+  grDevices::dev.off()
+  
+  return(output_filename)
+}
+
+save_clusters_to_pdf(clusters = clusters, merged_df$ROMol, merged_df)
+
+
+set.seed(4242)
+metaMDS_results <- metaMDS(comm = tanimoto_distance,
+                           autotransform = FALSE,
+                           engine = "monoMDS",
+                           k = 3,
+                           weakties = FALSE,
+                           model = "global",
+                           maxit = 400,
+                           try = 40,
+                           trymax = 100)
+metaMDS_results.points <- data.frame(metaMDS_results$points)
+
+
+metaMDS_results.points$cluster_ID <- merged_df$cluster_membership
+
+metaMDS_results.points$Name <- merged_df$Name
+#print(head(metaMDS_results.points))
+metaMDS_results.points <- metaMDS_results.points %>% mutate(cluster_ID = as.character(cluster_ID))
+
+metaMDS_results.points <- metaMDS_results.points[order(metaMDS_results.points$cluster_ID, method = "shell"),]
+
+metaMDS_results.points$cluster_ID <- factor(metaMDS_results.points$cluster_ID,
+                                            levels = as.character(1:length(clusters)), ordered = TRUE)
+
+clustered_mol <- metaMDS_results.points %>% group_by(cluster_ID) %>% 
+  summarize(cluster_count = sum(cluster_ID >= 1, na.rm = TRUE)) %>% 
+  filter(cluster_count > 1)
+
+
+metaMDS_results.points$cluster_ID_toPlot <- ifelse(metaMDS_results.points$cluster_ID %in% clustered_mol$cluster_ID, 
+                                                   "plot", "do not plot")
+
+metaMDS_results.points %>% 
+  ggplot(., aes(x = MDS1, y = MDS3)) +
+  geom_point(size = 2, col = "grey") +
+  geom_point(data = filter(metaMDS_results.points, cluster_ID_toPlot == "plot"), aes(x = MDS1, y = MDS3, col = cluster_ID), size = 4) +
+  #scale_color_manual(values = c('#7fc97f','#beaed4','#fdc086','#ffff99','#386cb0','#f0027f','#bf5b17','#666666')) +
+  theme_classic() +
+  theme(text = element_text(size = 15)) +
+  labs(title = "NMDS Plot from Distance Matrix",
+       x = "MDS1",
+       y = "MDS2")
 
 
 
+g <- metaMDS_results.points %>% 
+  ggplot(., aes(x = MDS1, y = MDS2, text = Name)) +
+  geom_point(size = 2, col = "grey") +
+  geom_point(data = filter(metaMDS_results.points, cluster_ID_toPlot == "plot"), aes(x = MDS1, y = MDS2, col = cluster_ID), size = 4) +
+  #scale_color_manual(values = c('#7fc97f','#beaed4','#fdc086','#ffff99','#386cb0','#f0027f','#bf5b17','#666666')) +
+  theme_classic() +
+  theme(text = element_text(size = 15)) +
+  labs(title = "NMDS Plot from Distance Matrix",
+       x = "MDS1",
+       y = "MDS2")
 
-
-
-
-
-
-
-
-
+ggplotly(g, tooltip = "text")
 
 
 

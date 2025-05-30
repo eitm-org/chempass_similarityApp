@@ -35,7 +35,6 @@ fluidPage( # fluidpage helps rescale the app display depending on the window its
   titlePanel("CHEMPASS; A Tool for Chemical Structure Similarity Scoring and Clustering."),
   p("Upload your list of compounds in .csv/.txt format either as CID/DTXSIDs/SMILES, select your choice of fingerprint generation, set the clustering threshold, and explore cluster-level statistics and heatmaps."),
   p("zip file for download includes a .pdf of clusters with similarity scores, molecular properties of compounds, high resolution images of heatmap and NMDS plots."),
-  helpText("Input data may be stored temporarily for testing and quality improvement purposes only."),
   shinyjs::useShinyjs(),
   tags$script(HTML("Shiny.setInputValue('disable_ready', true);")),
   #uiOutput("download_ui"),

@@ -96,15 +96,15 @@ save_clusters_to_pdf <- function(clusters, list_mol, merged_df, output_filename 
       
       
       img <- Draw$MolToImage(cluster_mols[[1]], 
-                             subImgSize = list(600L, 600L),
+                             size = list(1000L, 1000L),
                              legend=chemical_names[1],
-                             drawOptions=opts)
+                             options=opts)
       
       
       temp_file <- tempfile(fileext = ".png")
       img$save(temp_file)
       plot_img <- png::readPNG(temp_file)
-      graphics::rasterImage(plot_img, 0.1, 0.1, 0.5, 0.5)
+      graphics::rasterImage(plot_img, 0, 0.1, 1, 1)
       file.remove(temp_file)
     } else {
       #' Create the grid image for multiple molecules
@@ -206,15 +206,15 @@ save_clusters_to_pdf_fcfp4 <- function(clusters, list_mol, merged_df, output_fil
       
       
       img <- Draw$MolToImage(cluster_mols[[1]], 
-                             subImgSize = list(600L, 600L),
+                             size = list(1000L, 1000L),
                              legend=chemical_names[1],
-                             drawOptions=opts)
+                             options=opts)
       
       
       temp_file <- tempfile(fileext = ".png")
       img$save(temp_file)
       plot_img <- png::readPNG(temp_file)
-      graphics::rasterImage(plot_img, 0.1, 0.1, 0.5, 0.5)
+      graphics::rasterImage(plot_img, 0, 0.1, 1, 1)
       file.remove(temp_file)
     } else {
       
