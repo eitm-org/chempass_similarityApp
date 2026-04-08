@@ -1,6 +1,5 @@
 name: my-rdkit-env2
 channels:
-  - anaconda
   - conda-forge
   - defaults
   - https://repo.anaconda.com/pkgs/main
@@ -10,7 +9,7 @@ dependencies:
   - asttokens=3.0.0
   - brotli=1.1.0
   - brotli-bin=1.1.0
-  - brotli-python=1.0.9
+  - brotli-python
   - bzip2=1.0.8
   - ca-certificates=2025.2.25
   - cairo=1.18.4
@@ -121,6 +120,7 @@ dependencies:
   - rlpycairo=0.2.0
   - seaborn=0.13.2
   - six=1.17.0
+  - scikit-learn
   - sqlalchemy=2.0.40
   - stack_data=0.2.0
   - tk=8.6.13

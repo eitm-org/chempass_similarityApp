@@ -17,7 +17,7 @@ library(scales)
 library(stringr)
 library(ggplot2)
 
-use_miniconda("my-rdkit-env2")
+#use_miniconda("my-rdkit-env2")
 
 source_python("functions.py")
 

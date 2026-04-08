@@ -18,7 +18,7 @@ library(ggplot2)
 library(plotly)
 
 #' rdkit conda environment
-use_miniconda("my-rdkit-env2")
+#use_miniconda("my-rdkit-env2")
 
 #' python functions that are used throughout the script
 #' mainly contains functions for getting information from Pubchem

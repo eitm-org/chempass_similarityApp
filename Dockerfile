@@ -25,6 +25,38 @@ RUN apt-get update && apt-get install -y \
     libmpfr-dev \
     && rm -rf /var/lib/apt/lists/*
 
+
+# Set environment variable to auto-accept Anaconda ToS (safety net)
+ENV CONDA_PLUGINS_AUTO_ACCEPT_TOS=yes
+
+
+ENV CONDA_DIR /opt/conda
+RUN wget --quiet https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh -O ~/miniconda.sh && \
+    /bin/bash ~/miniconda.sh -b -p ${CONDA_DIR} && \
+    rm ~/miniconda.sh
+
+# Install Miniconda using reticulate
+#RUN R -e "reticulate::install_miniconda(update = TRUE)"
+
+# Add Conda to PATH
+ENV PATH="${CONDA_DIR}/bin:${PATH}"
+
+# Setup environment for R to find conda
+#RUN echo "export PATH=${CONDA_DIR}/bin:$PATH" >> /etc/R/Renviron.site
+
+# Copy your environment.yml file
+COPY my-rdkit-env2.yml /tmp/my-rdkit-env2.yml
+
+# Create conda environment from the file
+RUN conda env create -f /tmp/my-rdkit-env2.yml
+
+# set up env variables to force reticulate to use the manual conda set up
+ENV PATH=/opt/conda/bin:$PATH
+ENV RETICULATE_CONDA=/opt/conda/bin/conda
+ENV RETICULATE_PYTHON=/opt/conda/envs/my-rdkit-env2/bin/python
+ENV RETICULATE_MINICONDA_ENABLED=FALSE
+
+
 # basic shiny functionality
 RUN R -q -e "install.packages(c('shiny', 'rmarkdown', 'BiocManager'))"
 
@@ -52,28 +84,6 @@ RUN R -e "install.packages(c(\
   'shinyjs', \
   'shinyWidgets'\
 ), repos='https://cloud.r-project.org')"
-
-
-
-ENV CONDA_DIR /opt/conda
-RUN wget --quiet https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh -O ~/miniconda.sh && \
-    /bin/bash ~/miniconda.sh -b -p ${CONDA_DIR} && \
-    rm ~/miniconda.sh
-
-# Install Miniconda using reticulate
-RUN R -e "reticulate::install_miniconda(update = TRUE)"
-
-# Add Conda to PATH
-ENV PATH="${CONDA_DIR}/bin:${PATH}"
-
-# Setup environment for R to find conda
-#RUN echo "export PATH=${CONDA_DIR}/bin:$PATH" >> /etc/R/Renviron.site
-
-# Copy your environment.yml file
-COPY my-rdkit-env2.yml /tmp/my-rdkit-env2.yml
-
-# Create conda environment from the file
-RUN conda env create -f /tmp/my-rdkit-env2.yml
 
 
 # copy the app to the image
