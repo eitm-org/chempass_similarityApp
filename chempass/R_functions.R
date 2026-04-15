@@ -36,6 +36,67 @@ PandasTools <- import("rdkit.Chem.PandasTools")
 plt <- import("matplotlib.pyplot")
 Draw <- import("rdkit.Chem.Draw")
 
+
+### function to calculate similarity for large list of molecules
+tanimoto_lower <- function(fingerprints,
+                           return = c("dist","matrix","vector"),
+                           dtype = c("float32","float64")) {
+  return <- match.arg(return)
+  dtype  <- match.arg(dtype)
+  
+  n <- length(fingerprints)
+  if (n <= 1L) {
+    if (return == "matrix") return(diag(1, n))
+    if (return == "dist")   return(structure(numeric(0), Size = n, Diag = FALSE, Upper = FALSE,
+                                             method = "1 - Tanimoto", class = "dist"))
+    return(numeric(0))
+  }
+  
+  # Keep Python objects; avoid per-fp conversion overhead
+  fps_py <- reticulate::r_to_py(fingerprints, convert = FALSE)
+  
+  # Build the condensed lower-triangle similarities in one shot (length n*(n-1)/2)
+  env <- reticulate::py_run_string("
+from rdkit import DataStructs
+import numpy as np
+
+def lower_tri(fps, dtype='float32'):
+    n = len(fps)
+    m = n*(n-1)//2
+    out = np.empty(m, dtype=dtype)
+    k = 0
+    for i in range(1, n):
+        sims = DataStructs.BulkTanimotoSimilarity(fps[i], fps[:i])
+        L = len(sims)
+        out[k:k+L] = sims
+        k += L
+    return out
+", convert = FALSE)
+  
+  vec_py <- env$lower_tri(fps_py, dtype)
+  vec_r  <- reticulate::py_to_r(vec_py)  # similarities, order: (2,1), (3,1),(3,2), (4,1)..(n,n-1)
+  
+  if (return == "vector") return(vec_r)  # lower-tri similarities (condensed)
+  
+  if (return == "dist") {
+    d <- 1 - vec_r  # convert similarity -> distance
+    return(structure(d, Size = n, Diag = FALSE, Upper = FALSE,
+                     method = "1 - Tanimoto", class = "dist"))
+  }
+  
+  # return == "matrix": fill only the lower triangle; upper stays NA (diag=1)
+  M <- matrix(NA_real_, n, n)
+  diag(M) <- 1
+  idx <- 1L
+  for (i in 2:n) {
+    len <- i - 1L
+    M[i, 1:len] <- vec_r[idx:(idx + len - 1L)]
+    idx <- idx + len
+  }
+  M
+}
+
+
 #' function to calculate the Tanimoto similarity score
 tanimoto_distance_matrix2 <- function(fingerprints) {
   n <- length(fingerprints)
@@ -144,25 +205,42 @@ save_clusters_to_pdf <- function(clusters, list_mol, merged_df, output_filename 
       
       final_name <- paste(temp$Name, temp[[cluster_center]], sep = " \n")
       
-      #print(temp)
-      #print(cluster_center)
-      #print(final_name)
       
-      img <- Draw$MolsToGridImage(temp$ROMol, 
-                                  subImgSize = list(600L, 600L),
-                                  drawOptions = opts,
-                                  legends = final_name)
+      ## modifying code for letting only 9 structures per page
+      mol_per_page <- 9
+      n_mol <- nrow(temp)
+      n_pages <- ceiling(n_mol/mol_per_page)
       
       
-      temp_file <- tempfile(fileext = ".png")
-      img$save(temp_file)
-      plot_img <- png::readPNG(temp_file)
+      for (page in 1:n_pages) {
+        start_idx <- (page - 1) * mol_per_page + 1
+        end_idx <- min(page * mol_per_page, n_mol)
+        
+        # Subset data for this page
+        temp_page <- temp[start_idx:end_idx, ]
+        final_name_page <- final_name[start_idx:end_idx]
+        
+        img <- Draw$MolsToGridImage(temp_page$ROMol, 
+                                    subImgSize = list(600L, 600L),
+                                    drawOptions = opts,
+                                    legends = final_name_page)
+        
+        temp_file <- tempfile(fileext = ".png")
+        img$save(temp_file)
+        plot_img <- png::readPNG(temp_file)
+        plot.new()
+        page_title <- if (n_pages > 1) {
+          paste("Cluster", i, "- Page", page, "of", n_pages)
+        } else {
+          paste("Cluster", i)
+        }
+        title(main = page_title)
+        graphics::rasterImage(plot_img, 0, 0.1, 1, 1)
+        file.remove(temp_file)
+      }
       
       
-      plot.new()
-      title(main = paste("Cluster", i))
-      graphics::rasterImage(plot_img, 0, 0.1, 1, 1)
-      file.remove(temp_file)
+      
     }
   }
   
@@ -250,21 +328,39 @@ save_clusters_to_pdf_fcfp4 <- function(clusters, list_mol, merged_df, output_fil
       
       final_name <- paste(temp$Name, temp[[cluster_center]], sep = " \n")
       
-      img <- Draw$MolsToGridImage(temp$ROMol, 
-                                  subImgSize = list(600L, 600L),
-                                  drawOptions = opts,
-                                  legends = final_name)
+      ## modifying code for letting only 9 structures per page
+      mol_per_page <- 9
+      n_mol <- nrow(temp)
+      n_pages <- ceiling(n_mol/mol_per_page)
       
       
-      temp_file <- tempfile(fileext = ".png")
-      img$save(temp_file)
-      plot_img <- png::readPNG(temp_file)
+      for (page in 1:n_pages) {
+        start_idx <- (page - 1) * mol_per_page + 1
+        end_idx <- min(page * mol_per_page, n_mol)
+        
+        # Subset data for this page
+        temp_page <- temp[start_idx:end_idx, ]
+        final_name_page <- final_name[start_idx:end_idx]
+        
+        img <- Draw$MolsToGridImage(temp_page$ROMol, 
+                                    subImgSize = list(600L, 600L),
+                                    drawOptions = opts,
+                                    legends = final_name_page)
+        
+        temp_file <- tempfile(fileext = ".png")
+        img$save(temp_file)
+        plot_img <- png::readPNG(temp_file)
+        plot.new()
+        page_title <- if (n_pages > 1) {
+          paste("Cluster", i, "- Page", page, "of", n_pages)
+        } else {
+          paste("Cluster", i)
+        }
+        title(main = page_title)
+        graphics::rasterImage(plot_img, 0, 0.1, 1, 1)
+        file.remove(temp_file)
+      }
       
-      
-      plot.new()
-      title(main = paste("Cluster", i))
-      graphics::rasterImage(plot_img, 0, 0.1, 1, 1)
-      file.remove(temp_file)
     }
   }
   
@@ -280,7 +376,7 @@ save_clusters_to_pdf_fcfp4 <- function(clusters, list_mol, merged_df, output_fil
 dtxsid_pubchem <- function(dtxsid_df){
   if (dim(dtxsid_df)[1] > 0) {
     pubchem_dtx <- list()
-    dtxsids <- dtxsid_df$V1
+    dtxsids <- dtxsid_df$ID
     
     for (dtxsid in dtxsids) {
       cid <- tryCatch({
@@ -310,7 +406,7 @@ smiles_pubchem <- function(smiles_df){
   
   if (dim(smiles_df)[1] > 0) {
     pubchem_smiles <- list()
-    smiles <- smiles_df$V1
+    smiles <- smiles_df$ID
     
     for (smile in smiles) {
       smile <- gsub("\\s+", "", smile)
@@ -349,7 +445,7 @@ input_cid_reformating <- function(cid_df){
   
   if (dim(cid_df)[1] > 0) {
     pubchem_cid <- list()
-    cids <- cid_df$V1
+    cids <- cid_df$ID
     
     for (cid in cids) {
       
@@ -405,73 +501,7 @@ cid_to_synonym <- function(df_filt){
   
 }
 
-#' function for downstream analysis of cid
-#' includes getting synonyms, properties from pubchem
-#' handling missing titles
-#' 
-cid_processing <- function(dfs_list){
-  
-  df <- bind_rows(dfs_list)
-  
-  #' checking for errors which are added during Pubchem API search
-  error_rows <- df %>%
-    filter(if_any(everything(), ~ . == 'error'))
-  
-  #' this removes the errors from the data frame
-  #' if there are no error rows, it just saves the same dataframe as df_filt
-  
-  if (dim(error_rows)[1] > 1) {
-    df_filt <- filter(df, !(input %in% error_rows$input))
-    
-  }else{
-    df_filt <- df
-  }
-  
-  
-  
-  #' now to catch the missing names from titles
-  #' so this checks whether a CID has a title missing
-  #' and collects those missing into a new variable called missing_names
-  missing_names <- (df_filt[which(is.na(df_filt$Title)),])$CID
-  
-  #' if there are missing_names, it removes the entire row from the datafrmae
-  #' this ensures that downstream, the CIDs that get processed are clean
-  
-  if(length(missing_names) > 0) {
-    df_filt <- df_filt[-c(which(is.na(df_filt$Title))),]
-  }
-  
-  #' this removes the title column since it gets added during cid check
-  df_filt <- subset(df_filt, select = -c(TITLE))
-  
-  #' mutates the cid into a character
-  df_filt <- mutate(df_filt, CID = as.character(CID))
-  
-  
-  # get properties from Pubchem
-  property_df <- tryCatch({
-    get_properties_from_CIDs(paste(df_filt$CID, collapse = ","))
-  }, error = function(e) {
-    #message("Retrying once after error...")
-    Sys.sleep(1)
-    tryCatch(get_properties_from_CIDs(paste(df_filt$CID, collapse = ",")), error = function(e2) {
-      #message("Second attempt failed.")
-      "error"
-    })
-  })
-  
-  #' re-enforces that the CIDs is a character column
-  #' this is to ensure left join works downstream
-  property_df <- mutate(property_df, CID = as.character(CID))
-  
-  syn_df <- cid_to_synonym(df_filt)
-  
-  
-  df_filt <- left_join(df_filt, property_df) # only common column here should be CID
-  df_filt <- left_join(df_filt, syn_df) # only common column here is CID
-  
-  return(df_filt)
-}
+
 
 
 
@@ -536,6 +566,15 @@ Butina_clusters pdf Explained
       - On each page, the first molecule displayed is the cluster center and the Tanimoto similarity between that cluster center and other cluster members are displayed below the compound name.
       - Typically, the minimum intra-cluster similarity score displayed here is = (1-clustering cutoff set by user).
       - Singletons are plotted per page.
+
+Silhouette scores Explained
+-------------------------------
+  - The silhouette value is a measure of how similar an object is to its own cluster (cohesion) compared to other clusters (separation).  (doi: 10.1016/0377-0427(87)90125-7)
+  - The silhouette value ranges from −1 to +1, where a high value indicates that the object is well matched to its own cluster and poorly matched to neighboring clusters. 
+  - A clustering with an average silhouette width of over 0.7 is considered to be strong, a value over 0.5 reasonable, and over 0.25 weak.
+  - The silhouette score is specialized for measuring cluster quality when the clusters are convex-shaped, and may not perform well if the data clusters have irregular shapes or are of varying sizes.
+  - The silhouette score in this tool is calculated using Tanimoto distance.
+
       
 NMDS Explained
 -------------------------------
@@ -550,3 +589,87 @@ Heatmap Explained
   - Heatmap is generated using the ComplexHeatmap() package, with clustering method for rows and columns set to ward.D2. 
 
 "
+
+readme_text_twoList <- "
+Molecular Properties Explained
+-------------------------------
+
+1. XLogP (Partition Coefficient)
+   - Computationally generated octanol-water partition coefficient or distribution coefficient. 
+   - XLogP is used as a measure of hydrophilicity or hydrophobicity of a molecule.
+
+2. Molecular Weight (Mol Weight)
+   - The molecular weight is the sum of all atomic weights of the constituent atoms in a compound, measured in g/mol. 
+   - In the absence of explicit isotope labelling, averaged natural abundance is assumed. 
+   - If an atom bears an explicit isotope label, 100% isotopic purity is assumed at this location.
+
+3. HBondDonorCount
+   - Number of hydrogen-bond donors in the structure.
+
+4. HBondAcceptorCount
+   - Number of hydrogen-bond acceptors in the structure.
+
+5. Topological Polar Surface Area (TPSA)
+   - Topological polar surface area, computed by the algorithm described in the paper by Ertl et al.
+
+These properties are critical for assessing the 'drug-likeness' and physicochemical behavior of molecules.
+
+Fingerprints Explained
+-------------------------------
+
+How are fingerprints generated from molecular structures?
+  - Each atom in a compound is iteratively accessed at a diameter of 4 neighbors to produce a unique binary representation representing that structure. 
+  - The totality of representations are collapsed into a 2048 bit space creating the final hash for that molecule (or “fingerprint”)
+
+Butina clustering Explained
+-------------------------------
+  - A cluster centroid is the molecule within a given cluster which has the largest number of neighbors.
+  - For each molecule, all molecules with a Tanimoto distance below a given threshold are counted.
+  - Molecules are sorted by their number of neighbors in descending order, so that potential cluster centroids (i.e. the compounds with the largest number of neighbors) are placed at the top of the file.
+  - Starting with the first molecule (centroid) in the sorted list.
+      - All molecules with a Tanimoto index above or equal to the cut-off value used for clustering then become members of that cluster (in case of similarity).
+      - Each molecule that has been identified as a member of the given cluster is flagged and removed from further comparisons. Thus, flagged molecules cannot become either another cluster centroid or a member of another cluster. This process is like putting an exclusion sphere around the newly formed cluster.
+      - Once the first compound in the list has found all its neighbors, the first available (i.e. not flagged) compound at the top of the list becomes the new cluster centroid.
+  - The same process is repeated for all other unflagged molecules down the list.
+      - Molecules that have not been flagged by the end of the clustering process become singletons.
+      - Note that some molecules assigned as singletons can have neighbors at the given Tanimoto similarity index, but those neighbors have been excluded by a stronger cluster centroid.
+
+Butina_clusters pdf Explained
+-------------------------------
+  - Each cluster is represented on a single page of the pdf
+      - For each cluster generated with Butina clustering, intra-cluster Tanimoto similarity scores are calculated.
+      - On each page, the first molecule displayed is the cluster center and the Tanimoto similarity between that cluster center and other cluster members are displayed below the compound name.
+      - Typically, the minimum intra-cluster similarity score displayed here is = (1-clustering cutoff set by user).
+      - Singletons are plotted per page.
+
+
+"
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

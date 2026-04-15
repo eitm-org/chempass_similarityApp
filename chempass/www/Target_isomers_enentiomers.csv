@@ -1,0 +1,5 @@
+﻿Name,SMILES,group
+isoleucine,CC[C@H](C)[C@@H](C(=O)O)N,target
+R-Naproxen,C[C@H](C1=CC2=C(C=C1)C=C(C=C2)OC)C(=O)O,target
+isobutane,CC(C)C,target
+L-Lactic acid,C[C@@H](C(=O)O)O,target

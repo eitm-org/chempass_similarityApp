@@ -1,0 +1,5 @@
+﻿Name,SMILES,group
+leucine,CC(C)C[C@@H](C(=O)O)N,reference
+S-Naproxen,C[C@@H](C1=CC2=C(C=C1)C=C(C=C2)OC)C(=O)O ,reference
+Butane,CCCC,reference
+D-Lactic acid,C[C@H](C(=O)O)O,reference
